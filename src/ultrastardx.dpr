@@ -151,7 +151,6 @@ uses
   ULuaUsdx       in 'lua\ULuaUsdx.pas',
   ULuaParty      in 'lua\ULuaParty.pas',
   ULuaScreenSing in 'lua\ULuaScreenSing.pas',
-  ULuaPlaylist   in 'lua\ULuaPlaylist.pas',
 
   //------------------------------
   //Includes - Menu System
