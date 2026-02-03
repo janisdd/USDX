@@ -334,6 +334,7 @@ begin
   Data^.SongIndex := SongId;
   ExecInMainThread(@SelectSongInUi, Data);
 
+  Log.LogStatus('Companion', 'Selected song ' + IntToStr(SongId) + ': ' + Artist + ' - ' + Title);
   ResponseJson := '{"ok":true}';
   ResponseCode := 200;
 end;
