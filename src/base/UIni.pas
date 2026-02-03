@@ -149,6 +149,7 @@ type
       ShowScores:     integer;
       ShowWebScore:   integer;
       Debug:          integer;
+      LogLevel:       integer;
       AVDelay:        integer;
       MicDelay:       integer;
 
@@ -1511,6 +1512,7 @@ begin
 
   // Debug
   Debug := ReadArrayIndex(IDebug, IniFile, 'Game', 'Debug', 0);
+  LogLevel := IniFile.ReadInteger('Log', 'LogLevel', LOG_LEVEL_DEFAULT);
 
   LoadScreenModes(IniFile);
 
@@ -1812,6 +1814,9 @@ begin
 
     // Debug
     IniFile.WriteString('Game', 'Debug', IDebug[Debug]);
+
+    // Log
+    IniFile.WriteInteger('Log', 'LogLevel', LogLevel);
 
     IniFile.WriteInteger('Game', 'AVDelay', AVDelay);
     IniFile.WriteInteger('Game', 'MicDelay', MicDelay);

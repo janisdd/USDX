@@ -185,6 +185,7 @@ begin
     Log.LogStatus('Load Ini', 'Initialization');
     Ini := TIni.Create;
     Ini.Load;
+    Log.SetLogLevel(Ini.LogLevel);
 
     // Help
     Log.LogStatus('Load Help', 'Initialization');
