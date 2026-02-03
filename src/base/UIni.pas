@@ -153,6 +153,7 @@ type
       MicDelay:       integer;
 
       // Companion
+      CompanionEnabled: integer;
       CompanionCommPort: integer;
       CompanionPlaylistName: string;
 
@@ -1482,6 +1483,7 @@ begin
 
   MicDelay := IniFile.ReadInteger('Game', 'MicDelay', 140);
 
+  CompanionEnabled := IniFile.ReadInteger('Companion', 'CompanionEnabled', 0);
   CompanionCommPort := IniFile.ReadInteger('Companion', 'CompanionCommPort', 3001);
   CompanionPlaylistName := IniFile.ReadString('Companion', 'CompanionPlaylistName', 'CompanionPlaylist');
 
@@ -1814,6 +1816,7 @@ begin
     IniFile.WriteInteger('Game', 'AVDelay', AVDelay);
     IniFile.WriteInteger('Game', 'MicDelay', MicDelay);
 
+    IniFile.WriteInteger('Companion', 'CompanionEnabled', CompanionEnabled);
     IniFile.WriteInteger('Companion', 'CompanionCommPort', CompanionCommPort);
     IniFile.WriteString('Companion', 'CompanionPlaylistName', CompanionPlaylistName);
 

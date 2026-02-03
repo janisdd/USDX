@@ -209,7 +209,8 @@ begin
     // Playlist Manager
     Log.LogStatus('Playlist Manager', 'Initialization');
     PlaylistMan := TPlaylistManager.Create;
-    StartCompanionServer(Ini.CompanionCommPort, UTF8String(Ini.CompanionPlaylistName));
+    if (Ini.CompanionEnabled <> 0) then
+      StartCompanionServer(Ini.CompanionCommPort, UTF8String(Ini.CompanionPlaylistName));
 
     // GoldenStarsTwinkleMod
     Log.LogStatus('Effect Manager', 'Initialization');
