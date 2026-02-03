@@ -21,10 +21,14 @@ implementation
 uses
   Classes,
   SysUtils,
+  UIni,
   ULog,
-  UPlaylist
+  UPlaylist,
+  USongs
   {$IFDEF FPC}
   , fphttpserver
+  , fpjson
+  , jsonparser
   {$ENDIF}
   ;
 
@@ -46,10 +50,18 @@ type
 var
   CompanionServerThread: TCompanionServerThread = nil;
 
+function FindPlaylistIndexByName(const PlaylistName: UTF8String): Integer; forward;
+procedure EnsureCompanionPlaylist(const PlaylistName: UTF8String); forward;
+function TryParseSongRequest(const Body: string; out Title, Artist: UTF8String): boolean; forward;
+procedure HandleAddSongRequest(const Title, Artist: UTF8String; out ResponseJson: UTF8String); forward;
+
 procedure TCompanionServerThread.HandleRequest(Sender: TObject; var ARequest: TFPHTTPConnectionRequest;
   var AResponse: TFPHTTPConnectionResponse);
 var
   Body: string;
+  Title: UTF8String;
+  Artist: UTF8String;
+  ResponseJson: UTF8String;
 begin
   Body := ARequest.Content;
   if (Body <> '') then
@@ -58,7 +70,12 @@ begin
     Log.LogStatus('Companion', 'Request: ' + ARequest.Method + ' ' + ARequest.URI);
 
   AResponse.ContentType := 'application/json';
-  AResponse.Content := '{"ok":true}';
+  if TryParseSongRequest(Body, Title, Artist) then
+    HandleAddSongRequest(Title, Artist, ResponseJson)
+  else
+    ResponseJson := '{"ok":false,"error":"Invalid JSON"}';
+
+  AResponse.Content := ResponseJson;
 end;
 
 constructor TCompanionServerThread.Create(APort: integer);
@@ -98,10 +115,27 @@ begin
 end;
 {$ENDIF}
 
-procedure EnsureCompanionPlaylist(const PlaylistName: UTF8String);
+function FindPlaylistIndexByName(const PlaylistName: UTF8String): Integer;
 var
   I: Integer;
-  Found: boolean;
+begin
+  Result := -1;
+  if (PlayListMan = nil) then
+    Exit;
+
+  for I := 0 to High(PlayListMan.Playlists) do
+  begin
+    if (CompareText(PlayListMan.Playlists[I].Name, PlaylistName) = 0) then
+    begin
+      Result := I;
+      Exit;
+    end;
+  end;
+end;
+
+procedure EnsureCompanionPlaylist(const PlaylistName: UTF8String);
+var
+  Index: Integer;
 begin
   if (Trim(PlaylistName) = '') then
     Exit;
@@ -112,21 +146,88 @@ begin
     Exit;
   end;
 
-  Found := false;
-  for I := 0 to High(PlayListMan.Playlists) do
-  begin
-    if (CompareText(PlayListMan.Playlists[I].Name, PlaylistName) = 0) then
-    begin
-      Found := true;
-      Break;
-    end;
-  end;
-
-  if (not Found) then
+  Index := FindPlaylistIndexByName(PlaylistName);
+  if (Index = -1) then
   begin
     PlayListMan.AddPlaylist(PlaylistName);
     Log.LogStatus('Companion', 'Created playlist: ' + PlaylistName);
   end;
+end;
+
+function TryParseSongRequest(const Body: string; out Title, Artist: UTF8String): boolean;
+var
+  Data: TJSONData;
+  Obj: TJSONObject;
+begin
+  Result := false;
+  Title := '';
+  Artist := '';
+
+  if (Trim(Body) = '') then
+    Exit;
+
+  Data := GetJSON(Body);
+  try
+    if (Data.JSONType <> jtObject) then
+      Exit;
+    Obj := TJSONObject(Data);
+
+    Title := Obj.Get('title', '');
+    Artist := Obj.Get('artist', '');
+
+    Result := (Trim(Title) <> '') and (Trim(Artist) <> '');
+  finally
+    Data.Free;
+  end;
+end;
+
+function FindSongByArtistTitle(const Artist, Title: UTF8String): Integer;
+var
+  I: Integer;
+begin
+  Result := -1;
+  for I := Low(CatSongs.Song) to High(CatSongs.Song) do
+  begin
+    if (CatSongs.Song[I].Title = Title) and (CatSongs.Song[I].Artist = Artist) then
+    begin
+      Result := I;
+      Exit;
+    end;
+  end;
+end;
+
+procedure HandleAddSongRequest(const Title, Artist: UTF8String;
+  out ResponseJson: UTF8String);
+var
+  PlaylistName: UTF8String;
+  Index: Integer;
+  SongId: Integer;
+begin
+  PlaylistName := UTF8String(Ini.CompanionPlaylistName);
+  if (Trim(PlaylistName) = '') then
+  begin
+    ResponseJson := '{"ok":false,"error":"CompanionPlaylistName not set"}';
+    Exit;
+  end;
+
+  EnsureCompanionPlaylist(PlaylistName);
+  Index := FindPlaylistIndexByName(PlaylistName);
+  if (Index = -1) then
+  begin
+    ResponseJson := '{"ok":false,"error":"Playlist unavailable"}';
+    Exit;
+  end;
+
+  SongId := FindSongByArtistTitle(Artist, Title);
+  if (SongId = -1) then
+  begin
+    ResponseJson := '{"ok":false,"error":"Song not found"}';
+    Exit;
+  end;
+
+  PlayListMan.AddItem(SongId, Index);
+  Log.LogStatus('Companion', 'Added song ' + IntToStr(SongId) + ' to ' + PlaylistName);
+  ResponseJson := '{"ok":true}';
 end;
 
 procedure StartCompanionServer(Port: integer; const PlaylistName: UTF8String);
