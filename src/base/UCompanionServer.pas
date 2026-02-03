@@ -19,6 +19,7 @@ procedure StopCompanionServer;
 implementation
 
 uses
+  Classes,
   SysUtils,
   ULog
   {$IFDEF FPC}
@@ -28,20 +29,23 @@ uses
 
 {$IFDEF FPC}
 type
-  TCompanionServer = class
+  TCompanionServerThread = class(TThread)
   private
     FHttpServer: TFPHTTPServer;
+    FPort: integer;
     procedure HandleRequest(Sender: TObject; var ARequest: TFPHTTPConnectionRequest;
       var AResponse: TFPHTTPConnectionResponse);
   public
     constructor Create(APort: integer);
-    destructor Destroy; override;
+    procedure StopServer;
+  protected
+    procedure Execute; override;
   end;
 
 var
-  CompanionServer: TCompanionServer = nil;
+  CompanionServerThread: TCompanionServerThread = nil;
 
-procedure TCompanionServer.HandleRequest(Sender: TObject; var ARequest: TFPHTTPConnectionRequest;
+procedure TCompanionServerThread.HandleRequest(Sender: TObject; var ARequest: TFPHTTPConnectionRequest;
   var AResponse: TFPHTTPConnectionResponse);
 var
   Body: string;
@@ -56,26 +60,40 @@ begin
   AResponse.Content := '{"ok":true}';
 end;
 
-constructor TCompanionServer.Create(APort: integer);
+constructor TCompanionServerThread.Create(APort: integer);
 begin
-  inherited Create;
-  FHttpServer := TFPHTTPServer.Create(nil);
-  FHttpServer.Port := Word(APort);
-  FHttpServer.Threaded := true;
-  FHttpServer.OnRequest := HandleRequest;
-  FHttpServer.Active := true;
-
-  Log.LogStatus('Companion', 'HTTP server listening on port ' + IntToStr(APort));
+  inherited Create(false);
+  FreeOnTerminate := true;
+  FPort := APort;
 end;
 
-destructor TCompanionServer.Destroy;
+procedure TCompanionServerThread.Execute;
 begin
-  if (FHttpServer <> nil) then
-  begin
-    FHttpServer.Active := false;
-    FreeAndNil(FHttpServer);
+  try
+    FHttpServer := TFPHTTPServer.Create(nil);
+    FHttpServer.Port := Word(FPort);
+    FHttpServer.Threaded := true;
+    FHttpServer.OnRequest := HandleRequest;
+    FHttpServer.Active := true;
+
+    Log.LogStatus('Companion', 'HTTP server listening on port ' + IntToStr(FPort));
+
+    while not Terminated do
+      Sleep(50);
+  finally
+    if (FHttpServer <> nil) then
+    begin
+      FHttpServer.Active := false;
+      FreeAndNil(FHttpServer);
+    end;
   end;
-  inherited Destroy;
+end;
+
+procedure TCompanionServerThread.StopServer;
+begin
+  Terminate;
+  if (FHttpServer <> nil) then
+    FHttpServer.Active := false;
 end;
 {$ENDIF}
 
@@ -85,10 +103,10 @@ begin
     Exit;
 
   {$IFDEF FPC}
-  if (CompanionServer <> nil) then
+  if (CompanionServerThread <> nil) then
     Exit;
 
-  CompanionServer := TCompanionServer.Create(Port);
+  CompanionServerThread := TCompanionServerThread.Create(Port);
   {$ELSE}
   Log.LogStatus('Companion', 'HTTP server not available in Delphi build');
   {$ENDIF}
@@ -97,9 +115,10 @@ end;
 procedure StopCompanionServer;
 begin
   {$IFDEF FPC}
-  if (CompanionServer <> nil) then
+  if (CompanionServerThread <> nil) then
   begin
-    FreeAndNil(CompanionServer);
+    CompanionServerThread.StopServer;
+    CompanionServerThread := nil;
   end;
   {$ENDIF}
 end;
