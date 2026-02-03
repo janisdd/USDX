@@ -100,6 +100,7 @@ uses
   ULuaTextGL,
   ULuaParty,
   ULuaScreenSing,
+  ULuaPlaylist,
   UTime,
   UWebcam;
   //UVideoAcinerella;
@@ -231,6 +232,7 @@ begin
     LuaCore.RegisterModule('TextGl', ULuaTextGl_Lib_f);
     LuaCore.RegisterModule('Party', ULuaParty_Lib_f);
     LuaCore.RegisterModule('ScreenSing', ULuaScreenSing_Lib_f);
+    LuaCore.RegisterModule('Playlist', ULuaPlaylist_Lib_f);
 
     LuaCore.LoadPlugins;
 
