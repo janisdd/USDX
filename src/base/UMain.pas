@@ -101,6 +101,7 @@ uses
   ULuaTextGL,
   ULuaParty,
   ULuaScreenSing,
+  ULuaPlaylist,
   UTime,
   UWebcam;
   //UVideoAcinerella;
@@ -184,7 +185,6 @@ begin
     Log.LogStatus('Load Ini', 'Initialization');
     Ini := TIni.Create;
     Ini.Load;
-    StartCompanionServer(Ini.CompanionCommPort);
 
     // Help
     Log.LogStatus('Load Help', 'Initialization');
@@ -209,6 +209,7 @@ begin
     // Playlist Manager
     Log.LogStatus('Playlist Manager', 'Initialization');
     PlaylistMan := TPlaylistManager.Create;
+    StartCompanionServer(Ini.CompanionCommPort, UTF8String(Ini.CompanionPlaylistName));
 
     // GoldenStarsTwinkleMod
     Log.LogStatus('Effect Manager', 'Initialization');
@@ -233,6 +234,7 @@ begin
     LuaCore.RegisterModule('TextGl', ULuaTextGl_Lib_f);
     LuaCore.RegisterModule('Party', ULuaParty_Lib_f);
     LuaCore.RegisterModule('ScreenSing', ULuaScreenSing_Lib_f);
+    LuaCore.RegisterModule('Playlist', ULuaPlaylist_Lib_f);
 
     LuaCore.LoadPlugins;
 

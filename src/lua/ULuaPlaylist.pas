@@ -40,7 +40,7 @@ uses
   returns array of playlists with fields:
     Name: string
     Filename: string (UTF-8)
-    Items: array of { SongID: integer, Artist: string, Title: string }
+    Items: array of { SongID: integer, Artist: string, Title: string 
   note: SongID is the internal 0-based song index }
 function ULuaPlaylist_GetPlaylists(L: Plua_State): Integer; cdecl;
 
