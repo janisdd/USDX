@@ -153,8 +153,8 @@ type
       MicDelay:       integer;
 
       // Companion
-      CompanionUrl:   string;
       CompanionCommPort: integer;
+      CompanionPlaylistName: string;
 
       // Graphics
       MaxFramerate:   byte;
@@ -1482,8 +1482,8 @@ begin
 
   MicDelay := IniFile.ReadInteger('Game', 'MicDelay', 140);
 
-  CompanionUrl := IniFile.ReadString('Companion', 'CompanionUrl', '');
   CompanionCommPort := IniFile.ReadInteger('Companion', 'CompanionCommPort', 3001);
+  CompanionPlaylistName := IniFile.ReadString('Companion', 'CompanionPlaylistName', 'CompanionPlaylist');
 
   // Read Users Info (Network)
   DataBase.ReadUsers;
@@ -1814,8 +1814,8 @@ begin
     IniFile.WriteInteger('Game', 'AVDelay', AVDelay);
     IniFile.WriteInteger('Game', 'MicDelay', MicDelay);
 
-    IniFile.WriteString('Companion', 'CompanionUrl', CompanionUrl);
     IniFile.WriteInteger('Companion', 'CompanionCommPort', CompanionCommPort);
+    IniFile.WriteString('Companion', 'CompanionPlaylistName', CompanionPlaylistName);
 
     // MaxFramerate
     IniFile.WriteString('Graphics', 'MaxFramerate', IMaxFramerate[MaxFramerate]);

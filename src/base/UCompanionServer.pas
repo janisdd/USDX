@@ -13,7 +13,7 @@ interface
 
 {$I switches.inc}
 
-procedure StartCompanionServer(Port: integer);
+procedure StartCompanionServer(Port: integer; const PlaylistName: UTF8String);
 procedure StopCompanionServer;
 
 implementation
@@ -21,7 +21,8 @@ implementation
 uses
   Classes,
   SysUtils,
-  ULog
+  ULog,
+  UPlaylist
   {$IFDEF FPC}
   , fphttpserver
   {$ENDIF}
@@ -97,8 +98,41 @@ begin
 end;
 {$ENDIF}
 
-procedure StartCompanionServer(Port: integer);
+procedure EnsureCompanionPlaylist(const PlaylistName: UTF8String);
+var
+  I: Integer;
+  Found: boolean;
 begin
+  if (Trim(PlaylistName) = '') then
+    Exit;
+
+  if (PlayListMan = nil) then
+  begin
+    Log.LogStatus('Companion', 'Playlist manager not ready');
+    Exit;
+  end;
+
+  Found := false;
+  for I := 0 to High(PlayListMan.Playlists) do
+  begin
+    if (CompareText(PlayListMan.Playlists[I].Name, PlaylistName) = 0) then
+    begin
+      Found := true;
+      Break;
+    end;
+  end;
+
+  if (not Found) then
+  begin
+    PlayListMan.AddPlaylist(PlaylistName);
+    Log.LogStatus('Companion', 'Created playlist: ' + PlaylistName);
+  end;
+end;
+
+procedure StartCompanionServer(Port: integer; const PlaylistName: UTF8String);
+begin
+  EnsureCompanionPlaylist(PlaylistName);
+
   if (Port <= 0) then
     Exit;
 
