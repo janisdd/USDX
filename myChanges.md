@@ -1,0 +1,4 @@
+Added a Lua playlist module that exposes the playlist manager to scripts. It returns playlist data as Lua tables (including items and metadata), supports getting/setting the current playlist, and provides functions to add/delete playlists, add/delete items, reload, and save. The new module is registered during Lua initialization so it can be required and used via the Usdx namespace.
+Added a `CompanionUrl` string setting read/written from `config.ini` under the `Companion` section (no UI exposure).
+Added a `CompanionCommPort` integer setting read/written from `config.ini` under the `Companion` section (no UI exposure).
+The main program entry point is located in `src/ultrastardx.dpr`.

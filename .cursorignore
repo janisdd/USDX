@@ -1,0 +1,6 @@
+game/
+dists/
+debian/
+test/
+build/
+game/languages/

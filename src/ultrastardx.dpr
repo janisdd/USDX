@@ -151,6 +151,7 @@ uses
   ULuaUsdx       in 'lua\ULuaUsdx.pas',
   ULuaParty      in 'lua\ULuaParty.pas',
   ULuaScreenSing in 'lua\ULuaScreenSing.pas',
+  ULuaPlaylist   in 'lua\ULuaPlaylist.pas',
 
   //------------------------------
   //Includes - Menu System
@@ -354,6 +355,7 @@ uses
   UDLLManager             in 'base\UDLLManager.pas',
 
   UPartyTournament              in 'base\UPartyTournament.pas',
+  UCompanionServer        in 'base\UCompanionServer.pas',
   UScreenPartyTournamentRounds  in 'screens\UScreenPartyTournamentRounds.pas',
   UScreenPartyTournamentPlayer  in 'screens\UScreenPartyTournamentPlayer.pas',
   UScreenPartyTournamentOptions in 'screens\UScreenPartyTournamentOptions.pas',

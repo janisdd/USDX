@@ -80,6 +80,7 @@ uses
   UGraphicClasses,
   UHelp,
   UIni,
+  UCompanionServer,
   UJoystick,
   ULanguage,
   ULog,
@@ -184,6 +185,7 @@ begin
     Log.LogStatus('Load Ini', 'Initialization');
     Ini := TIni.Create;
     Ini.Load;
+    StartCompanionServer(Ini.CompanionCommPort);
 
     // Help
     Log.LogStatus('Load Help', 'Initialization');
@@ -289,6 +291,9 @@ begin
 
     Log.LogStatus('Finalize Media', 'Finalization');
     FinalizeMedia();
+
+    Log.LogStatus('Stop Companion Server', 'Finalization');
+    StopCompanionServer;
 
     FinalizeJoyStick;
 
