@@ -91,6 +91,9 @@ LogLevel = 20
   - 0 = critical
   - -1 = none
 
+
+You need to compile with `--enable-debug` to see the debug messages.
+
 ---
 
 # UltraStar Deluxe
