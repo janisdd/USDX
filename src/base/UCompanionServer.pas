@@ -64,7 +64,7 @@ type
   TCompanionSongArray = array of TCompanionSong;
 
 function TryParseSongsRequest(const Body: string; out Songs: TCompanionSongArray): boolean; forward;
-procedure HandleAddSongRequest(const Title, Artist: UTF8String; out ResponseJson: UTF8String;
+procedure HandleAddSongsRequest(const Songs: TCompanionSongArray; out ResponseJson: UTF8String;
   out ResponseCode: Integer); forward;
 procedure HandleSelectSongRequest(const Title, Artist: UTF8String; out ResponseJson: UTF8String;
   out ResponseCode: Integer); forward;
@@ -130,8 +130,6 @@ procedure TCompanionServerThread.HandleRequest(Sender: TObject; var ARequest: TF
   var AResponse: TFPHTTPConnectionResponse);
 var
   Body: string;
-  Title: UTF8String;
-  Artist: UTF8String;
   Songs: TCompanionSongArray;
   ResponseJson: UTF8String;
   ResponseCode: Integer;
@@ -156,12 +154,17 @@ begin
     else
       HandleSetCompanionPlaylistRequest(Songs, ResponseJson, ResponseCode);
   end
+  else if (Path = '/addToCompanionPlaylist') then
+  begin
+    if not TryParseSongsRequest(Body, Songs) then
+      SetErrorResponse(ResponseJson, ResponseCode, 'Invalid JSON', 400)
+    else
+      HandleAddSongsRequest(Songs, ResponseJson, ResponseCode);
+  end
   else
   begin
     if not TryParseSongRequest(Body, Title, Artist) then
       SetErrorResponse(ResponseJson, ResponseCode, 'Invalid JSON', 400)
-    else if (Path = '/addToCompanionPlaylist') then
-      HandleAddSongRequest(Title, Artist, ResponseJson, ResponseCode)
     else if (Path = '/selectSong') then
       HandleSelectSongRequest(Title, Artist, ResponseJson, ResponseCode)
     else
@@ -346,12 +349,15 @@ begin
   ResponseCode := Code;
 end;
 
-procedure HandleAddSongRequest(const Title, Artist: UTF8String; out ResponseJson: UTF8String;
+procedure HandleAddSongsRequest(const Songs: TCompanionSongArray; out ResponseJson: UTF8String;
   out ResponseCode: Integer);
 var
   PlaylistName: UTF8String;
   Index: Integer;
   SongId: Integer;
+  I: Integer;
+  SongIds: array of Integer;
+  FoundCount: Integer;
 begin
   PlaylistName := UTF8String(Ini.CompanionPlaylistName);
   if (Trim(PlaylistName) = '') then
@@ -368,15 +374,26 @@ begin
     Exit;
   end;
 
-  SongId := FindSongByArtistTitle(Artist, Title);
-  if (SongId = -1) then
+  FoundCount := 0;
+  if (Length(Songs) > 0) then
+    SetLength(SongIds, Length(Songs));
+  for I := 0 to High(Songs) do
   begin
-    SetErrorResponse(ResponseJson, ResponseCode, 'Song not found', 404);
-    Exit;
+    SongId := FindSongByArtistTitle(Songs[I].Artist, Songs[I].Title);
+    if (SongId = -1) then
+    begin
+      Log.LogWarn('Song not found: ' + Songs[I].Artist + ' - ' + Songs[I].Title, 'Companion');
+      Continue;
+    end;
+    SongIds[FoundCount] := SongId;
+    Inc(FoundCount);
   end;
+  if (Length(SongIds) <> FoundCount) then
+    SetLength(SongIds, FoundCount);
 
-  PlayListMan.AddItem(SongId, Index);
-  Log.LogStatus('Companion', 'Added song ' + IntToStr(SongId) + ' to ' + PlaylistName);
+  for I := 0 to High(SongIds) do
+    PlayListMan.AddItem(SongIds[I], Index);
+  Log.LogStatus('Companion', 'Added ' + IntToStr(Length(SongIds)) + ' songs to ' + PlaylistName);
   ResponseJson := '{"ok":true}';
   ResponseCode := 200;
 end;
@@ -418,6 +435,7 @@ var
   I: Integer;
   WasExisting: Boolean;
   SongIds: array of Integer;
+  FoundCount: Integer;
 begin
   PlaylistName := UTF8String(Ini.CompanionPlaylistName);
   if (Trim(PlaylistName) = '') then
@@ -435,6 +453,7 @@ begin
     Exit;
   end;
 
+  FoundCount := 0;
   if (Length(Songs) > 0) then
     SetLength(SongIds, Length(Songs));
   for I := 0 to High(Songs) do
@@ -442,11 +461,14 @@ begin
     SongId := FindSongByArtistTitle(Songs[I].Artist, Songs[I].Title);
     if (SongId = -1) then
     begin
-      SetErrorResponse(ResponseJson, ResponseCode, 'Song not found', 404);
-      Exit;
+      Log.LogWarn('Song not found: ' + Songs[I].Artist + ' - ' + Songs[I].Title, 'Companion');
+      Continue;
     end;
-    SongIds[I] := SongId;
+    SongIds[FoundCount] := SongId;
+    Inc(FoundCount);
   end;
+  if (Length(SongIds) <> FoundCount) then
+    SetLength(SongIds, FoundCount);
 
   if WasExisting then
   begin
