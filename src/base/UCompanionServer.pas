@@ -56,9 +56,19 @@ var
 function FindPlaylistIndexByName(const PlaylistName: UTF8String): Integer; forward;
 procedure EnsureCompanionPlaylist(const PlaylistName: UTF8String); forward;
 function TryParseSongRequest(const Body: string; out Title, Artist: UTF8String): boolean; forward;
+type
+  TCompanionSong = record
+    Title: UTF8String;
+    Artist: UTF8String;
+  end;
+  TCompanionSongArray = array of TCompanionSong;
+
+function TryParseSongsRequest(const Body: string; out Songs: TCompanionSongArray): boolean; forward;
 procedure HandleAddSongRequest(const Title, Artist: UTF8String; out ResponseJson: UTF8String;
   out ResponseCode: Integer); forward;
 procedure HandleSelectSongRequest(const Title, Artist: UTF8String; out ResponseJson: UTF8String;
+  out ResponseCode: Integer); forward;
+procedure HandleSetCompanionPlaylistRequest(const Songs: TCompanionSongArray; out ResponseJson: UTF8String;
   out ResponseCode: Integer); forward;
 procedure SetErrorResponse(out ResponseJson: UTF8String; out ResponseCode: Integer;
   const Message: UTF8String; Code: Integer); forward;
@@ -122,6 +132,7 @@ var
   Body: string;
   Title: UTF8String;
   Artist: UTF8String;
+  Songs: TCompanionSongArray;
   ResponseJson: UTF8String;
   ResponseCode: Integer;
   Path: string;
@@ -138,14 +149,24 @@ begin
     Path := ARequest.URI;
 
   ResponseCode := 200;
-  if not TryParseSongRequest(Body, Title, Artist) then
-    SetErrorResponse(ResponseJson, ResponseCode, 'Invalid JSON', 400)
-  else if (Path = '/addToCompanionPlaylist') then
-    HandleAddSongRequest(Title, Artist, ResponseJson, ResponseCode)
-  else if (Path = '/selectSong') then
-    HandleSelectSongRequest(Title, Artist, ResponseJson, ResponseCode)
+  if (Path = '/setCompanionPlaylist') then
+  begin
+    if not TryParseSongsRequest(Body, Songs) then
+      SetErrorResponse(ResponseJson, ResponseCode, 'Invalid JSON', 400)
+    else
+      HandleSetCompanionPlaylistRequest(Songs, ResponseJson, ResponseCode);
+  end
   else
-    SetErrorResponse(ResponseJson, ResponseCode, 'Unknown route', 404);
+  begin
+    if not TryParseSongRequest(Body, Title, Artist) then
+      SetErrorResponse(ResponseJson, ResponseCode, 'Invalid JSON', 400)
+    else if (Path = '/addToCompanionPlaylist') then
+      HandleAddSongRequest(Title, Artist, ResponseJson, ResponseCode)
+    else if (Path = '/selectSong') then
+      HandleSelectSongRequest(Title, Artist, ResponseJson, ResponseCode)
+    else
+      SetErrorResponse(ResponseJson, ResponseCode, 'Unknown route', 404);
+  end;
 
   AResponse.Code := ResponseCode;
   AResponse.Content := ResponseJson;
@@ -254,6 +275,55 @@ begin
   end;
 end;
 
+function TryParseSongsRequest(const Body: string; out Songs: TCompanionSongArray): boolean;
+var
+  Data: TJSONData;
+  Obj: TJSONObject;
+  SongsData: TJSONData;
+  SongsArray: TJSONArray;
+  ItemObj: TJSONObject;
+  I: Integer;
+  Title: UTF8String;
+  Artist: UTF8String;
+begin
+  Result := false;
+  SetLength(Songs, 0);
+
+  if (Trim(Body) = '') then
+    Exit;
+
+  Data := GetJSON(Body);
+  try
+    if (Data.JSONType <> jtObject) then
+      Exit;
+    Obj := TJSONObject(Data);
+
+    SongsData := Obj.Find('songs');
+    if (SongsData = nil) or (SongsData.JSONType <> jtArray) then
+      Exit;
+
+    SongsArray := TJSONArray(SongsData);
+    if (SongsArray.Count > 0) then
+      SetLength(Songs, SongsArray.Count);
+    for I := 0 to SongsArray.Count - 1 do
+    begin
+      if (SongsArray.Items[I].JSONType <> jtObject) then
+        Exit;
+      ItemObj := TJSONObject(SongsArray.Items[I]);
+      Title := ItemObj.Get('title', '');
+      Artist := ItemObj.Get('artist', '');
+      if (Trim(Title) = '') or (Trim(Artist) = '') then
+        Exit;
+      Songs[I].Title := Title;
+      Songs[I].Artist := Artist;
+    end;
+
+    Result := true;
+  finally
+    Data.Free;
+  end;
+end;
+
 function FindSongByArtistTitle(const Artist, Title: UTF8String): Integer;
 var
   I: Integer;
@@ -335,6 +405,61 @@ begin
   ExecInMainThread(@SelectSongInUi, Data);
 
   Log.LogStatus('Companion', 'Selected song ' + IntToStr(SongId) + ': ' + Artist + ' - ' + Title);
+  ResponseJson := '{"ok":true}';
+  ResponseCode := 200;
+end;
+
+procedure HandleSetCompanionPlaylistRequest(const Songs: TCompanionSongArray; out ResponseJson: UTF8String;
+  out ResponseCode: Integer);
+var
+  PlaylistName: UTF8String;
+  Index: Integer;
+  SongId: Integer;
+  I: Integer;
+  WasExisting: Boolean;
+  SongIds: array of Integer;
+begin
+  PlaylistName := UTF8String(Ini.CompanionPlaylistName);
+  if (Trim(PlaylistName) = '') then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'CompanionPlaylistName not set', 500);
+    Exit;
+  end;
+
+  WasExisting := FindPlaylistIndexByName(PlaylistName) <> -1;
+  EnsureCompanionPlaylist(PlaylistName);
+  Index := FindPlaylistIndexByName(PlaylistName);
+  if (Index = -1) then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'Playlist unavailable', 500);
+    Exit;
+  end;
+
+  if (Length(Songs) > 0) then
+    SetLength(SongIds, Length(Songs));
+  for I := 0 to High(Songs) do
+  begin
+    SongId := FindSongByArtistTitle(Songs[I].Artist, Songs[I].Title);
+    if (SongId = -1) then
+    begin
+      SetErrorResponse(ResponseJson, ResponseCode, 'Song not found', 404);
+      Exit;
+    end;
+    SongIds[I] := SongId;
+  end;
+
+  if WasExisting then
+  begin
+    SetLength(PlayListMan.Playlists[Index].Items, 0);
+    PlayListMan.SavePlayList(Index);
+    if (CatSongs.CatNumShow = -3) and (Index = PlayListMan.CurPlaylist) then
+      PlayListMan.SetPlaylist(Index);
+  end;
+
+  for I := 0 to High(SongIds) do
+    PlayListMan.AddItem(SongIds[I], Index);
+
+  Log.LogStatus('Companion', 'Set playlist ' + PlaylistName + ' with ' + IntToStr(Length(SongIds)) + ' songs');
   ResponseJson := '{"ok":true}';
   ResponseCode := 200;
 end;
