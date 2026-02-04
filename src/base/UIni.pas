@@ -1484,7 +1484,7 @@ begin
 
   MicDelay := IniFile.ReadInteger('Game', 'MicDelay', 140);
 
-  CompanionEnabled := IniFile.ReadInteger('Companion', 'CompanionEnabled', 0);
+  CompanionEnabled := IniFile.ReadInteger('Companion', 'CompanionEnabled', 1);
   CompanionCommPort := IniFile.ReadInteger('Companion', 'CompanionCommPort', 3001);
   CompanionPlaylistName := IniFile.ReadString('Companion', 'CompanionPlaylistName', 'CompanionPlaylist');
 

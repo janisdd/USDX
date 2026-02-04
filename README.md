@@ -1,3 +1,98 @@
+# UltraStar Deluxe Fork
+
+This is a fork of the original UltraStar Deluxe project.
+
+It adds a (http) companion server to the game to communicate with a companion website.
+
+The main changes were made in the `src/base/UCompanionServer.pas` file.
+
+The companion server is a lightweight HTTP server that can receive JSON requests.
+The server runs asynchronously and must not block the main thread.
+
+Example config.ini (with default values):
+
+```ini
+[Companion]
+CompanionEnabled = 1
+CompanionCommPort = 3001
+CompanionPlaylistName = CompanionPlaylist
+```
+
+- `CompanionEnabled` (integer) - 0 = disabled, 1 = enabled
+- `CompanionCommPort` (integer) - the port the server will listen on
+- `CompanionPlaylistName` (string) - the name of the playlist to use
+
+The companion server can be used to add songs to the playlist and to select a song.
+
+The server supports the following endpoints:
+- `/setCompanionPlaylist` - set the companion playlist to the given songs
+- `/addToCompanionPlaylist` - add the given songs to the companion playlist
+- `/selectSong` - select the given song in the game (only in song select screen and when the song is in the current collection [when filtered or in playlist])
+
+
+`setCompanionPlaylist` and `addToCompanionPlaylist` try to find the songs and only add them if they are found, not found songs are skipped.
+
+The server returns a JSON response with the following format:
+```json
+{
+  "ok": true|false,
+  "error": "error message"
+}
+```
+
+Example requests:
+
+- `/setCompanionPlaylist`
+
+```json
+{
+  "songs": [
+    {
+      "title": "Song Title",
+      "artist": "Song Artist"
+    }
+  ]
+}
+```
+
+- `/addToCompanionPlaylist`
+```json
+{
+  "songs": [
+    {
+      "title": "Song Title",
+      "artist": "Song Artist"
+    }
+  ]
+}
+```
+
+- `/selectSong`
+```json
+{
+  "title": "Song Title",
+  "artist": "Song Artist"
+}
+```
+
+The logLevel is now also exposed via the `config.ini` file.
+
+```ini
+[Log]
+LogLevel = 20
+```
+
+- `LogLevel` (integer)
+  - 50 = debug
+  - 40 = info
+  - 30 = status
+  - 20 = warn (default)
+  - 10 = error
+  - 0 = critical
+  - -1 = none
+
+---
+
 # UltraStar Deluxe
 
 [![Build Status](https://github.com/UltraStar-Deluxe/USDX/actions/workflows/main.yml/badge.svg)](https://github.com/UltraStar-Deluxe/USDX/actions/workflows/main.yml)
