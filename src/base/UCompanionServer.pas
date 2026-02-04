@@ -131,6 +131,8 @@ procedure TCompanionServerThread.HandleRequest(Sender: TObject; var ARequest: TF
 var
   Body: string;
   Songs: TCompanionSongArray;
+  Title: UTF8String;
+  Artist: UTF8String;
   ResponseJson: UTF8String;
   ResponseCode: Integer;
   Path: string;
