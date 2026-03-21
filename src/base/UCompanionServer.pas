@@ -23,6 +23,8 @@ uses
   SysUtils,
   UIni,
   ULog,
+  UPath,
+  UPathUtils,
   UPlaylist,
   USongs,
   UDisplay,
@@ -528,10 +530,38 @@ end;
 
 procedure HandleReindexDirRequest(const Request: TCompanionReindexDirRequest; out ResponseJson: UTF8String;
   out ResponseCode: Integer);
+var
+  I: Integer;
+  SongsDirName: UTF8String;
+  SongPath: IPath;
+  SongPathText: UTF8String;
 begin
-  Log.LogStatus('Companion', 'Reindex requested for songsDirName: ' + Request.SongsDirName);
-  ResponseJson := '{"ok":true}';
-  ResponseCode := 200;
+  SongsDirName := Trim(Request.SongsDirName);
+  if (SongsDirName = '') then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'songsDirName must not be empty', 400);
+    Exit;
+  end;
+
+  if (SongPaths <> nil) then
+  begin
+    for I := 0 to SongPaths.Count - 1 do
+    begin
+      SongPath := SongPaths[I] as IPath;
+      SongPathText := UTF8String(SongPath.RemovePathDelim().ToUTF8(false));
+
+      if (Length(SongPathText) >= Length(SongsDirName)) and
+         (CompareText(Copy(SongPathText, Length(SongPathText) - Length(SongsDirName) + 1, Length(SongsDirName)), SongsDirName) = 0) then
+      begin
+        Log.LogStatus('Companion', 'Reindex requested for song path: ' + UTF8String(SongPath.RemovePathDelim().ToNative()));
+        ResponseJson := '{"ok":true}';
+        ResponseCode := 200;
+        Exit;
+      end;
+    end;
+  end;
+
+  SetErrorResponse(ResponseJson, ResponseCode, 'Songs directory not found: ' + SongsDirName, 404);
 end;
 
 procedure StartCompanionServer(Port: integer; const PlaylistName: UTF8String);

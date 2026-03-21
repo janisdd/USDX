@@ -93,12 +93,14 @@ type
   private
     fParseSongDirectory: boolean;
     fProcessing:         boolean;
+    BrowseTXTFilesSafeLock: System.TRTLCriticalSection;
     procedure int_LoadSongList;
     procedure DoDirChanged(Sender: TObject);
   protected
     procedure Execute; override;
   public
     SongList: TList;            // array of songs
+    SongListSafe: TList;        // array of songs indexed via BrowseTXTFilesSafe
 
     Selected: integer;        // selected song index
     constructor Create();
@@ -108,6 +110,9 @@ type
     procedure FindFilesByExtension(const Dir: IPath; const Ext: IPath; Recursive: Boolean; var Files: TPathDynArray);
     procedure BrowseDir(Dir: IPath); // should return number of songs in the future
     procedure BrowseTXTFiles(Dir: IPath);
+    procedure BrowseTXTFilesSafe(Dir: IPath);
+    procedure LockSongListSafe;
+    procedure UnlockSongListSafe;
     procedure Sort(Order: TSortingType);
     property  Processing: boolean read fProcessing;
   end;
@@ -176,6 +181,8 @@ begin
   Self.FreeOnTerminate := true;
 
   SongList           := TList.Create();
+  SongListSafe       := TList.Create();
+  System.InitCriticalSection(BrowseTXTFilesSafeLock);
 
   // until it is fixed, simply load the song-list
   int_LoadSongList();
@@ -183,6 +190,8 @@ end;
 
 destructor TSongs.Destroy();
 begin
+  System.DoneCriticalSection(BrowseTXTFilesSafeLock);
+  FreeAndNil(SongListSafe);
   FreeAndNil(SongList);
 
   inherited;
@@ -323,6 +332,50 @@ begin
   end;
 
   SetLength(Files, 0);
+end;
+
+procedure TSongs.BrowseTXTFilesSafe(Dir: IPath);
+var
+  I: integer;
+  Files: TPathDynArray;
+  Song: TSong;
+  //CloneSong: TSong;
+  Extension: IPath;
+begin
+  System.EnterCriticalSection(BrowseTXTFilesSafeLock);
+  try
+    Log.LogDebug('Searching directory ' + Dir.ToWide + ' for txt files', 'TSongs.BrowseTXTFilesSafe');
+    SetLength(Files, 0);
+    Extension := Path('.txt');
+    FindFilesByExtension(Dir, Extension, true, Files);
+
+    for I := 0 to High(Files) do
+    begin
+      Song := TSong.Create(Files[I]);
+
+      if Song.Analyse then
+        SongListSafe.Add(Song)
+      else
+      begin
+        Log.LogError('AnalyseFile failed for "' + Files[I].ToNative + '".');
+        FreeAndNil(Song);
+      end;
+    end;
+
+    SetLength(Files, 0);
+  finally
+    System.LeaveCriticalSection(BrowseTXTFilesSafeLock);
+  end;
+end;
+
+procedure TSongs.LockSongListSafe;
+begin
+  System.EnterCriticalSection(BrowseTXTFilesSafeLock);
+end;
+
+procedure TSongs.UnlockSongListSafe;
+begin
+  System.LeaveCriticalSection(BrowseTXTFilesSafeLock);
 end;
 
 (*
