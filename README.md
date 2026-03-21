@@ -120,6 +120,23 @@ LogLevel = 20
 
 You need to compile with `--enable-debug` to see the debug messages.
 
+compiling on windows (or other platforms) hints can be found in [COMPILING.md](COMPILING.md).
+
+if you have everything on windows:
+
+```bash
+# start msys2 shell (program)
+# cd to the USDX directory
+# first run:
+./autogen.sh && ./configure --enable-debug && make
+
+# if only source files changed, run:
+make
+
+# app is then in the game directory
+```
+
+
 ---
 
 # UltraStar Deluxe
