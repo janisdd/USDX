@@ -94,6 +94,7 @@ type
     fParseSongDirectory: boolean;
     fProcessing:         boolean;
     BrowseTXTFilesSafeLock: System.TRTLCriticalSection;
+    procedure ClearSongListSafe;
     procedure int_LoadSongList;
     procedure DoDirChanged(Sender: TObject);
   protected
@@ -174,6 +175,20 @@ uses
   UFilesystem,
   UUnicodeUtils;
 
+procedure TSongs.ClearSongListSafe;
+var
+  I: integer;
+  Song: TSong;
+begin
+  for I := 0 to SongListSafe.Count - 1 do
+  begin
+    Song := TSong(SongListSafe[I]);
+    FreeAndNil(Song);
+  end;
+
+  SongListSafe.Clear;
+end;
+
 constructor TSongs.Create();
 begin
   // do not start thread BEFORE initialization (suspended = true)
@@ -190,6 +205,7 @@ end;
 
 destructor TSongs.Destroy();
 begin
+  ClearSongListSafe;
   System.DoneCriticalSection(BrowseTXTFilesSafeLock);
   FreeAndNil(SongListSafe);
   FreeAndNil(SongList);
@@ -345,6 +361,7 @@ begin
   System.EnterCriticalSection(BrowseTXTFilesSafeLock);
   try
     Log.LogDebug('Searching directory ' + Dir.ToWide + ' for txt files', 'TSongs.BrowseTXTFilesSafe');
+    ClearSongListSafe;
     SetLength(Files, 0);
     Extension := Path('.txt');
     FindFilesByExtension(Dir, Extension, true, Files);

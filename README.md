@@ -16,11 +16,13 @@ Example config.ini (with default values):
 CompanionEnabled = 1
 CompanionCommPort = 3001
 CompanionPlaylistName = CompanionPlaylist
+CompanionReindexThrottleWindowSec = 5
 ```
 
 - `CompanionEnabled` (integer) - 0 = disabled, 1 = enabled
 - `CompanionCommPort` (integer) - the port the server will listen on
 - `CompanionPlaylistName` (string) - the name of the playlist to use
+- `CompanionReindexThrottleWindowSec` (integer) - the throttle window in seconds
 
 The companion server can be used to add songs to the playlist and to select a song.
 
@@ -74,6 +76,28 @@ Example requests:
   "artist": "Song Artist"
 }
 ```
+
+
+- `/reindexDir`
+```json
+{
+  "songsDirName": "Songs Directory Name"
+}
+```
+
+only the song dirs in the config.ini are supported (SongDir1, SongDir2, ...) and only the `name` of the directory is supported, not the full path.
+
+As the server runs in a separate thread, it can take a while to reindex the songs. To avoid flooding the server with requests, the server will throttle the reindexing.
+The throttle window is configurable via the `config.ini` file (`CompanionReindexThrottleWindowSec`).
+The last request (trailing edge) will be executed after the throttle window has passed (last `songsDirName` wins).
+
+If other requests with different `songsDirName` are received, they will be ignored until the trailing edge of the throttle window has passed.
+This is not optimal but this route is intended to be used with the same `songsDirName` over and over again (from the companion, downloaded songs dir).
+
+Also, currently the reindex indexes all songs fully, without checking if the song already exists. This is ok for now.
+
+The new songs will show up when you are in the song select screen again.
+
 
 The logLevel is now also exposed via the `config.ini` file.
 
