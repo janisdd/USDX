@@ -1798,6 +1798,7 @@ begin
       Exit;
     end;
 
+    Log.LogStatus('Saving config : ' + Filename.ToNative, 'Ini');
     IniFile := TIniFile.Create(Filename.ToNative);
 
     // Players
