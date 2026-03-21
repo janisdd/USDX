@@ -132,6 +132,8 @@ type
     CatCount:   integer; // Number of Categorys
     LastVisChecked: integer; // The real index of the last song that had its VisibilityIndex updated
     LastVisIndex:   integer; // The VisibilityIndex of the last song that had this value updated
+    ActiveFilterText: UTF8String;
+    ActiveFilterType: TSongFilter;
 
     procedure SortSongs();
     procedure Refresh;                                      // refreshes arrays by recreating them from Songs array
@@ -144,6 +146,7 @@ type
     function FindPreviousVisible(SearchFrom: integer): integer; // Find Previous visible Song
     function VisibleSongs: integer;                         // returns number of visible songs (for tabs)
     function VisibleIndex(Index: integer): integer;         // returns visible song index (skips invisible)
+    function HasActiveFilter: boolean;
 
     function SetFilter(FilterStr: UTF8String; Filter: TSongFilter): cardinal;
   end;
@@ -468,8 +471,11 @@ procedure TSongs.MergeSongListSafe;
 var
   AddedSongs: Integer;
   PrevCatNumShow: Integer;
+  PrevFilterText: UTF8String;
+  PrevFilterType: TSongFilter;
   PrevPlaylistIndex: Integer;
   PrevSelectedSongPath: IPath;
+  PrevSelectedVisibleIndex: Integer;
   RestoredSelection: Integer;
 
   function GetSelectedSongPath: IPath;
@@ -505,6 +511,32 @@ var
     end;
   end;
 
+  function GetSelectedVisibleIndex: Integer;
+  var
+    SelectedIndex: Integer;
+  begin
+    Result := -1;
+
+    if (not assigned(CatSongs)) or (Length(CatSongs.Song) = 0) then
+      Exit;
+
+    SelectedIndex := -1;
+    if assigned(ScreenSong) and
+       (ScreenSong.Interaction >= 0) and
+       (ScreenSong.Interaction < Length(CatSongs.Song)) then
+    begin
+      SelectedIndex := ScreenSong.Interaction;
+    end
+    else if (CatSongs.Selected >= 0) and
+            (CatSongs.Selected < Length(CatSongs.Song)) then
+    begin
+      SelectedIndex := CatSongs.Selected;
+    end;
+
+    if (SelectedIndex >= 0) and CatSongs.Song[SelectedIndex].Visible then
+      Result := CatSongs.VisibleIndex(SelectedIndex);
+  end;
+
   function FindSongIndexByPath(const SongPath: IPath): Integer;
   var
     SongIndex: Integer;
@@ -525,16 +557,49 @@ var
       end;
     end;
   end;
+
+  function FindSongIndexByVisibleIndex(const VisibleSongIndex: Integer): Integer;
+  var
+    SongIndex: Integer;
+    CurrentVisibleIndex: Integer;
+  begin
+    Result := -1;
+    if (not assigned(CatSongs)) or (VisibleSongIndex < 0) then
+      Exit;
+
+    CurrentVisibleIndex := 0;
+    for SongIndex := Low(CatSongs.Song) to High(CatSongs.Song) do
+    begin
+      if CatSongs.Song[SongIndex].Visible then
+      begin
+        if (CurrentVisibleIndex = VisibleSongIndex) then
+        begin
+          Result := SongIndex;
+          Exit;
+        end;
+        Inc(CurrentVisibleIndex);
+      end;
+    end;
+  end;
 begin
   PrevCatNumShow := -1;
+  PrevFilterText := '';
+  PrevFilterType := fltAll;
   PrevPlaylistIndex := -1;
   PrevSelectedSongPath := PATH_NONE;
+  PrevSelectedVisibleIndex := -1;
   RestoredSelection := -1;
 
   if assigned(CatSongs) then
   begin
     PrevCatNumShow := CatSongs.CatNumShow;
+    if CatSongs.HasActiveFilter then
+    begin
+      PrevFilterText := CatSongs.ActiveFilterText;
+      PrevFilterType := CatSongs.ActiveFilterType;
+    end;
     PrevSelectedSongPath := GetSelectedSongPath;
+    PrevSelectedVisibleIndex := GetSelectedVisibleIndex;
   end;
   if assigned(PlayListMan) then
     PrevPlaylistIndex := PlayListMan.CurPlaylist;
@@ -562,8 +627,9 @@ begin
         end;
       -2:
         begin
-          // Filter mode is rebuilt from scratch here; without persisting the
-          // search text separately, the previous filter cannot be restored.
+          CatSongs.SetFilter(PrevFilterText, PrevFilterType);
+          if assigned(ScreenSong) then
+            ScreenSong.NextRandomSearchIdx := CatSongs.VisibleSongs;
         end;
       -1:
         begin
@@ -575,6 +641,15 @@ begin
     end;
 
     RestoredSelection := FindSongIndexByPath(PrevSelectedSongPath);
+    if (RestoredSelection >= 0) and (not CatSongs.Song[RestoredSelection].Visible) then
+      RestoredSelection := -1;
+
+    if (RestoredSelection < 0) then
+      RestoredSelection := FindSongIndexByVisibleIndex(PrevSelectedVisibleIndex);
+
+    if (RestoredSelection < 0) then
+      RestoredSelection := FindSongIndexByVisibleIndex(0);
+
     if (RestoredSelection >= 0) then
       CatSongs.Selected := RestoredSelection;
   end;
@@ -598,9 +673,13 @@ begin
     end
     else if assigned(CatSongs) and (Length(CatSongs.Song) > 0) then
     begin
-      ScreenSong.Interaction := 0;
-      ScreenSong.FixSelected;
-      ScreenSong.FixSelected2;
+      RestoredSelection := FindSongIndexByVisibleIndex(0);
+      if (RestoredSelection >= 0) then
+      begin
+        ScreenSong.SkipTo(CatSongs.VisibleIndex(RestoredSelection), RestoredSelection, CatSongs.VisibleSongs);
+        ScreenSong.FixSelected;
+        ScreenSong.FixSelected2;
+      end;
     end;
   end;
 end;
@@ -1160,19 +1239,28 @@ begin
   Result := Song[Index].VisibleIndex;
 end;
 
+function TCatSongs.HasActiveFilter: boolean;
+begin
+  Result := (Trim(ActiveFilterText) <> '');
+end;
+
 function TCatSongs.SetFilter(FilterStr: UTF8String; Filter: TSongFilter): cardinal;
 var
   I, J:      integer;
   TmpString: UTF8String;
   WordArray: array of UTF8String;
 begin
-    if Assigned(PlayListMan) then
-    begin
-      if (Filter = fltAll) and (Trim(FilterStr) = '') then
-        PlayListMan.RestoreSongOrder;
-    end;
+  FilterStr := Trim(FilterStr);
+  ActiveFilterText := FilterStr;
+  ActiveFilterType := Filter;
 
-  FilterStr := Trim(LowerCase(TransliterateToASCII(FilterStr)));
+  if Assigned(PlayListMan) then
+  begin
+    if (Filter = fltAll) and (Trim(FilterStr) = '') then
+      PlayListMan.RestoreSongOrder;
+  end;
+
+  FilterStr := LowerCase(TransliterateToASCII(FilterStr));
 
   if (FilterStr <> '') then
   begin
@@ -1236,6 +1324,8 @@ begin
   end
   else
   begin
+    ActiveFilterText := '';
+    ActiveFilterType := fltAll;
     for i := 0 to High(Song) do
     begin
       Song[i].Visible := (Ini.Tabs = 1) = Song[i].Main;
