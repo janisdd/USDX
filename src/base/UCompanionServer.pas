@@ -61,14 +61,20 @@ type
     Title: UTF8String;
     Artist: UTF8String;
   end;
+  TCompanionReindexDirRequest = record
+    SongsDirName: UTF8String;
+  end;
   TCompanionSongArray = array of TCompanionSong;
 
 function TryParseSongsRequest(const Body: string; out Songs: TCompanionSongArray): boolean; forward;
+function TryParseReindexDirRequest(const Body: string; out Request: TCompanionReindexDirRequest): boolean; forward;
 procedure HandleAddSongsRequest(const Songs: TCompanionSongArray; out ResponseJson: UTF8String;
   out ResponseCode: Integer); forward;
 procedure HandleSelectSongRequest(const Title, Artist: UTF8String; out ResponseJson: UTF8String;
   out ResponseCode: Integer); forward;
 procedure HandleSetCompanionPlaylistRequest(const Songs: TCompanionSongArray; out ResponseJson: UTF8String;
+  out ResponseCode: Integer); forward;
+procedure HandleReindexDirRequest(const Request: TCompanionReindexDirRequest; out ResponseJson: UTF8String;
   out ResponseCode: Integer); forward;
 procedure SetErrorResponse(out ResponseJson: UTF8String; out ResponseCode: Integer;
   const Message: UTF8String; Code: Integer); forward;
@@ -131,6 +137,7 @@ procedure TCompanionServerThread.HandleRequest(Sender: TObject; var ARequest: TF
 var
   Body: string;
   Songs: TCompanionSongArray;
+  ReindexDirRequest: TCompanionReindexDirRequest;
   Title: UTF8String;
   Artist: UTF8String;
   ResponseJson: UTF8String;
@@ -162,6 +169,13 @@ begin
       SetErrorResponse(ResponseJson, ResponseCode, 'Invalid JSON', 400)
     else
       HandleAddSongsRequest(Songs, ResponseJson, ResponseCode);
+  end
+  else if (Path = '/reindexDir') then
+  begin
+    if not TryParseReindexDirRequest(Body, ReindexDirRequest) then
+      SetErrorResponse(ResponseJson, ResponseCode, 'Invalid JSON', 400)
+    else
+      HandleReindexDirRequest(ReindexDirRequest, ResponseJson, ResponseCode);
   end
   else
   begin
@@ -329,6 +343,30 @@ begin
   end;
 end;
 
+function TryParseReindexDirRequest(const Body: string; out Request: TCompanionReindexDirRequest): boolean;
+var
+  Data: TJSONData;
+  Obj: TJSONObject;
+begin
+  Result := false;
+  Request.SongsDirName := '';
+
+  if (Trim(Body) = '') then
+    Exit;
+
+  Data := GetJSON(Body);
+  try
+    if (Data.JSONType <> jtObject) then
+      Exit;
+    Obj := TJSONObject(Data);
+
+    Request.SongsDirName := Obj.Get('songsDirName', '');
+    Result := Trim(Request.SongsDirName) <> '';
+  finally
+    Data.Free;
+  end;
+end;
+
 function FindSongByArtistTitle(const Artist, Title: UTF8String): Integer;
 var
   I: Integer;
@@ -484,6 +522,14 @@ begin
     PlayListMan.AddItem(SongIds[I], Index);
 
   Log.LogStatus('Companion', 'Set playlist ' + PlaylistName + ' with ' + IntToStr(Length(SongIds)) + ' songs');
+  ResponseJson := '{"ok":true}';
+  ResponseCode := 200;
+end;
+
+procedure HandleReindexDirRequest(const Request: TCompanionReindexDirRequest; out ResponseJson: UTF8String;
+  out ResponseCode: Integer);
+begin
+  Log.LogStatus('Companion', 'Reindex requested for songsDirName: ' + Request.SongsDirName);
   ResponseJson := '{"ok":true}';
   ResponseCode := 200;
 end;

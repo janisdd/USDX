@@ -295,6 +295,7 @@ begin
   end;
 end;
 
+// this is called with the root directory of the songs (from config: SongDir1, SongDir2, ...)
 procedure TSongs.BrowseTXTFiles(Dir: IPath);
 var
   I: integer;
