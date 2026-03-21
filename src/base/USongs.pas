@@ -95,6 +95,8 @@ type
     fProcessing:         boolean;
     BrowseTXTFilesSafeLock: System.TRTLCriticalSection;
     procedure ClearSongListSafe;
+    function MergeSongListSafeIntoSongList: Integer;
+    procedure MergeSongListSafe;
     procedure int_LoadSongList;
     procedure DoDirChanged(Sender: TObject);
   protected
@@ -175,6 +177,12 @@ uses
   UFilesystem,
   UUnicodeUtils;
 
+procedure MergeSongListSafeInMainThread(Data: Pointer);
+begin
+  if (Data <> nil) then
+    TSongs(Data).MergeSongListSafe;
+end;
+
 procedure TSongs.ClearSongListSafe;
 var
   I: integer;
@@ -183,10 +191,56 @@ begin
   for I := 0 to SongListSafe.Count - 1 do
   begin
     Song := TSong(SongListSafe[I]);
+    SongListSafe[I] := nil;
     FreeAndNil(Song);
   end;
 
   SongListSafe.Clear;
+end;
+
+function TSongs.MergeSongListSafeIntoSongList: Integer;
+var
+  I: Integer;
+  J: Integer;
+  Song: TSong;
+  ExistingSong: TSong;
+  SongPath: IPath;
+  ExistingSongPath: IPath;
+  IsDuplicate: Boolean;
+begin
+  Result := 0;
+
+  for I := 0 to SongListSafe.Count - 1 do
+  begin
+    Song := TSong(SongListSafe[I]);
+    if (Song = nil) then
+      Continue;
+
+    IsDuplicate := false;
+    SongPath := Song.Path.Append(Song.FileName);
+    for J := 0 to SongList.Count - 1 do
+    begin
+      ExistingSong := TSong(SongList[J]);
+      if (ExistingSong = nil) then
+        Continue;
+
+      ExistingSongPath := ExistingSong.Path.Append(ExistingSong.FileName);
+      if ExistingSongPath.Equals(SongPath) then
+      begin
+        IsDuplicate := true;
+        Break;
+      end;
+    end;
+
+    if not IsDuplicate then
+    begin
+      SongList.Add(Song);
+      SongListSafe[I] := nil;
+      Inc(Result);
+    end;
+  end;
+
+  ClearSongListSafe;
 end;
 
 constructor TSongs.Create();
@@ -355,7 +409,6 @@ var
   I: integer;
   Files: TPathDynArray;
   Song: TSong;
-  //CloneSong: TSong;
   Extension: IPath;
 begin
   System.EnterCriticalSection(BrowseTXTFilesSafeLock);
@@ -382,6 +435,149 @@ begin
     SetLength(Files, 0);
   finally
     System.LeaveCriticalSection(BrowseTXTFilesSafeLock);
+  end;
+
+  MainThreadExec(@MergeSongListSafeInMainThread, Self);
+end;
+
+procedure TSongs.MergeSongListSafe;
+var
+  AddedSongs: Integer;
+  PrevCatNumShow: Integer;
+  PrevPlaylistIndex: Integer;
+  PrevSelectedSongPath: IPath;
+  RestoredSelection: Integer;
+
+  function GetSelectedSongPath: IPath;
+  var
+    SelectedSong: TSong;
+  begin
+    Result := PATH_NONE;
+
+    if assigned(ScreenSong) and assigned(CatSongs) and
+       (Length(CatSongs.Song) > 0) then
+    begin
+      if (ScreenSong.Interaction >= 0) and
+         (ScreenSong.Interaction < Length(CatSongs.Song)) then
+      begin
+        SelectedSong := CatSongs.Song[ScreenSong.Interaction];
+        if assigned(SelectedSong) and (not SelectedSong.Main) then
+        begin
+          Result := SelectedSong.Path.Append(SelectedSong.FileName);
+          Exit;
+        end;
+      end;
+    end;
+
+    if assigned(CatSongs) and (Length(CatSongs.Song) > 0) then
+    begin
+      if (CatSongs.Selected >= 0) and
+         (CatSongs.Selected < Length(CatSongs.Song)) then
+      begin
+        SelectedSong := CatSongs.Song[CatSongs.Selected];
+        if assigned(SelectedSong) and (not SelectedSong.Main) then
+          Result := SelectedSong.Path.Append(SelectedSong.FileName);
+      end;
+    end;
+  end;
+
+  function FindSongIndexByPath(const SongPath: IPath): Integer;
+  var
+    SongIndex: Integer;
+    Candidate: TSong;
+  begin
+    Result := -1;
+    if (SongPath = nil) or SongPath.IsUnset then
+      Exit;
+
+    for SongIndex := Low(CatSongs.Song) to High(CatSongs.Song) do
+    begin
+      Candidate := CatSongs.Song[SongIndex];
+      if assigned(Candidate) and (not Candidate.Main) and
+         Candidate.Path.Append(Candidate.FileName).Equals(SongPath) then
+      begin
+        Result := SongIndex;
+        Exit;
+      end;
+    end;
+  end;
+begin
+  PrevCatNumShow := -1;
+  PrevPlaylistIndex := -1;
+  PrevSelectedSongPath := PATH_NONE;
+  RestoredSelection := -1;
+
+  if assigned(CatSongs) then
+  begin
+    PrevCatNumShow := CatSongs.CatNumShow;
+    PrevSelectedSongPath := GetSelectedSongPath;
+  end;
+  if assigned(PlayListMan) then
+    PrevPlaylistIndex := PlayListMan.CurPlaylist;
+
+  System.EnterCriticalSection(BrowseTXTFilesSafeLock);
+  try
+    AddedSongs := MergeSongListSafeIntoSongList;
+  finally
+    System.LeaveCriticalSection(BrowseTXTFilesSafeLock);
+  end;
+
+  if (AddedSongs <= 0) then
+    Exit;
+
+  Log.LogStatus('Added ' + IntToStr(AddedSongs) + ' songs after reindex', 'TSongs.MergeSongListSafe');
+
+  if assigned(CatSongs) then
+  begin
+    CatSongs.Refresh;
+    case PrevCatNumShow of
+      -3:
+        begin
+          if assigned(PlayListMan) and (PrevPlaylistIndex >= 0) then
+            PlayListMan.SetPlayList(PrevPlaylistIndex);
+        end;
+      -2:
+        begin
+          // Filter mode is rebuilt from scratch here; without persisting the
+          // search text separately, the previous filter cannot be restored.
+        end;
+      -1:
+        begin
+          // Keep the default state. ScreenSong.OnShow() will reopen the
+          // category list if tabs are enabled at startup.
+        end;
+    else
+      CatSongs.ShowCategory(PrevCatNumShow);
+    end;
+
+    RestoredSelection := FindSongIndexByPath(PrevSelectedSongPath);
+    if (RestoredSelection >= 0) then
+      CatSongs.Selected := RestoredSelection;
+  end;
+
+  if assigned(CatCovers) then
+    CatCovers.Load;
+
+  if assigned(ScreenSong) then
+  begin
+    ScreenSong.GenerateThumbnails();
+
+    if (RestoredSelection >= 0) and assigned(CatSongs) and
+       (RestoredSelection < Length(CatSongs.Song)) then
+    begin
+      if CatSongs.Song[RestoredSelection].Visible then
+      begin
+        ScreenSong.SkipTo(CatSongs.VisibleIndex(RestoredSelection), RestoredSelection, CatSongs.VisibleSongs);
+        ScreenSong.FixSelected;
+        ScreenSong.FixSelected2;
+      end;
+    end
+    else if assigned(CatSongs) and (Length(CatSongs.Song) > 0) then
+    begin
+      ScreenSong.Interaction := 0;
+      ScreenSong.FixSelected;
+      ScreenSong.FixSelected2;
+    end;
   end;
 end;
 

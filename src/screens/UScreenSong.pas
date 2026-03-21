@@ -2029,6 +2029,13 @@ begin
   if (Length(CatSongs.Song) <= 0) then
     Exit;
 
+  // Regenerate the song buttons from scratch. Calling GenerateThumbnails()
+  // while the song screen is already live must not append duplicate buttons.
+  ClearButtons;
+  SelInteraction := -1;
+  SetLength(Interactions, 0);
+  ButtonPos := -1;
+
   // set length of button array once instead for every song
   SetButtonLength(Length(CatSongs.Song));
 

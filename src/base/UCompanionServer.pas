@@ -473,6 +473,7 @@ begin
   NormalizedSongPath := SongPath.RemovePathDelim();
   Log.LogStatus('Companion', 'Reindex requested for song path: ' + UTF8String(NormalizedSongPath.ToNative()));
   Songs.BrowseTXTFilesSafe(SongPath);
+  Log.LogStatus('Companion', 'Reindex completed for song path: ' + UTF8String(NormalizedSongPath.ToNative()));
 end;
 
 function TryScheduleReindex(const SongPath: IPath; const SongsDirName: UTF8String;
