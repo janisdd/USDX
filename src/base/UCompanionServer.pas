@@ -39,6 +39,11 @@ uses
 
 {$IFDEF FPC}
 type
+  TCompanionReindexThrottleThread = class(TThread)
+  protected
+    procedure Execute; override;
+  end;
+
   TCompanionServerThread = class(TThread)
   private
     FHttpServer: TFPHTTPServer;
@@ -54,6 +59,12 @@ type
 
 var
   CompanionServerThread: TCompanionServerThread = nil;
+  ReindexThrottleThread: TCompanionReindexThrottleThread = nil;
+  ReindexThrottleLock: TRTLCriticalSection;
+  LastReindexRunAtMs: QWord = 0;
+  PendingReindex: Boolean = false;
+  PendingReindexSongPath: IPath = nil;
+  PendingReindexSongsDirName: UTF8String = '';
 
 function FindPlaylistIndexByName(const PlaylistName: UTF8String): Integer; forward;
 procedure EnsureCompanionPlaylist(const PlaylistName: UTF8String); forward;
@@ -80,6 +91,10 @@ procedure HandleReindexDirRequest(const Request: TCompanionReindexDirRequest; ou
   out ResponseCode: Integer); forward;
 procedure SetErrorResponse(out ResponseJson: UTF8String; out ResponseCode: Integer;
   const Message: UTF8String; Code: Integer); forward;
+function GetReindexThrottleWindowMs: QWord; forward;
+procedure ExecuteReindexForPath(const SongPath: IPath); forward;
+function TryScheduleReindex(const SongPath: IPath; const SongsDirName: UTF8String;
+  out RetryAfterMs: QWord): Boolean; forward;
 
 type
   TMainThreadExecProc = procedure(Data: Pointer);
@@ -131,6 +146,48 @@ begin
     ScreenSong.ChangeMusic;
   finally
     Dispose(SelectData);
+  end;
+end;
+
+procedure TCompanionReindexThrottleThread.Execute;
+var
+  SongPath: IPath;
+  SongsDirName: UTF8String;
+  NowMs: QWord;
+  WindowMs: QWord;
+begin
+  while not Terminated do
+  begin
+    SongPath := nil;
+    SongsDirName := '';
+    WindowMs := GetReindexThrottleWindowMs();
+
+    System.EnterCriticalSection(ReindexThrottleLock);
+    try
+      if PendingReindex and (LastReindexRunAtMs <> 0) then
+      begin
+        NowMs := GetTickCount64();
+        if (NowMs - LastReindexRunAtMs >= WindowMs) then
+        begin
+          SongPath := PendingReindexSongPath;
+          SongsDirName := PendingReindexSongsDirName;
+          PendingReindex := false;
+          PendingReindexSongPath := nil;
+          PendingReindexSongsDirName := '';
+          LastReindexRunAtMs := NowMs;
+        end;
+      end;
+    finally
+      System.LeaveCriticalSection(ReindexThrottleLock);
+    end;
+
+    if (SongPath <> nil) then
+    begin
+      Log.LogStatus('Companion', 'Executing trailing reindex for songsDirName: ' + SongsDirName);
+      ExecuteReindexForPath(SongPath);
+    end
+    else
+      Sleep(50);
   end;
 end;
 
@@ -391,6 +448,70 @@ begin
   ResponseCode := Code;
 end;
 
+function GetReindexThrottleWindowMs: QWord;
+var
+  WindowSec: Integer;
+begin
+  WindowSec := Ini.CompanionReindexThrottleWindowSec;
+  if (WindowSec <= 0) then
+    WindowSec := 5;
+  Result := QWord(WindowSec) * 1000;
+end;
+
+procedure ExecuteReindexForPath(const SongPath: IPath);
+var
+  NormalizedSongPath: IPath;
+begin
+  if (SongPath = nil) then
+    Exit;
+  if (Songs = nil) then
+  begin
+    Log.LogStatus('Companion', 'Skipping reindex because Songs subsystem is not ready');
+    Exit;
+  end;
+
+  NormalizedSongPath := SongPath.RemovePathDelim();
+  Log.LogStatus('Companion', 'Reindex requested for song path: ' + UTF8String(NormalizedSongPath.ToNative()));
+  Songs.BrowseTXTFilesSafe(SongPath);
+end;
+
+function TryScheduleReindex(const SongPath: IPath; const SongsDirName: UTF8String;
+  out RetryAfterMs: QWord): Boolean;
+var
+  NowMs: QWord;
+  ElapsedMs: QWord;
+  WindowMs: QWord;
+begin
+  Result := true;
+  RetryAfterMs := 0;
+  NowMs := GetTickCount64();
+  WindowMs := GetReindexThrottleWindowMs();
+
+  System.EnterCriticalSection(ReindexThrottleLock);
+  try
+    if (LastReindexRunAtMs <> 0) then
+    begin
+      ElapsedMs := NowMs - LastReindexRunAtMs;
+      if (ElapsedMs < WindowMs) then
+      begin
+        RetryAfterMs := WindowMs - ElapsedMs;
+        PendingReindex := true;
+        PendingReindexSongPath := SongPath;
+        PendingReindexSongsDirName := SongsDirName;
+        Result := false;
+        Exit;
+      end;
+    end;
+
+    LastReindexRunAtMs := NowMs;
+    PendingReindex := false;
+    PendingReindexSongPath := nil;
+    PendingReindexSongsDirName := '';
+  finally
+    System.LeaveCriticalSection(ReindexThrottleLock);
+  end;
+end;
+
 procedure HandleAddSongsRequest(const Songs: TCompanionSongArray; out ResponseJson: UTF8String;
   out ResponseCode: Integer);
 var
@@ -535,11 +656,18 @@ var
   SongsDirName: UTF8String;
   SongPath: IPath;
   SongPathText: UTF8String;
+  RetryAfterMs: QWord;
 begin
   SongsDirName := Trim(Request.SongsDirName);
   if (SongsDirName = '') then
   begin
     SetErrorResponse(ResponseJson, ResponseCode, 'songsDirName must not be empty', 400);
+    Exit;
+  end;
+
+  if (Songs = nil) then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'Songs subsystem not ready', 503);
     Exit;
   end;
 
@@ -553,7 +681,15 @@ begin
       if (Length(SongPathText) >= Length(SongsDirName)) and
          (CompareText(Copy(SongPathText, Length(SongPathText) - Length(SongsDirName) + 1, Length(SongsDirName)), SongsDirName) = 0) then
       begin
-        Log.LogStatus('Companion', 'Reindex requested for song path: ' + UTF8String(SongPath.RemovePathDelim().ToNative()));
+        if not TryScheduleReindex(SongPath, SongsDirName, RetryAfterMs) then
+        begin
+          Log.LogStatus('Companion', 'Queued trailing reindex for songsDirName: ' + SongsDirName);
+          ResponseJson := '{"ok":true,"queued":true,"retryAfterMs":' + IntToStr(RetryAfterMs) + '}';
+          ResponseCode := 202;
+          Exit;
+        end;
+
+        ExecuteReindexForPath(SongPath);
         ResponseJson := '{"ok":true}';
         ResponseCode := 200;
         Exit;
@@ -575,6 +711,19 @@ begin
   if (CompanionServerThread <> nil) then
     Exit;
 
+  System.EnterCriticalSection(ReindexThrottleLock);
+  try
+    LastReindexRunAtMs := 0;
+    PendingReindex := false;
+    PendingReindexSongPath := nil;
+    PendingReindexSongsDirName := '';
+  finally
+    System.LeaveCriticalSection(ReindexThrottleLock);
+  end;
+
+  if (ReindexThrottleThread = nil) then
+    ReindexThrottleThread := TCompanionReindexThrottleThread.Create(false);
+
   CompanionServerThread := TCompanionServerThread.Create(Port);
   {$ELSE}
   Log.LogStatus('Companion', 'HTTP server not available in Delphi build');
@@ -589,7 +738,37 @@ begin
     CompanionServerThread.StopServer;
     CompanionServerThread := nil;
   end;
+  if (ReindexThrottleThread <> nil) then
+  begin
+    ReindexThrottleThread.Terminate;
+    ReindexThrottleThread.WaitFor;
+    FreeAndNil(ReindexThrottleThread);
+  end;
+
+  System.EnterCriticalSection(ReindexThrottleLock);
+  try
+    LastReindexRunAtMs := 0;
+    PendingReindex := false;
+    PendingReindexSongPath := nil;
+    PendingReindexSongsDirName := '';
+  finally
+    System.LeaveCriticalSection(ReindexThrottleLock);
+  end;
   {$ENDIF}
 end;
+
+initialization
+  System.InitCriticalSection(ReindexThrottleLock);
+
+finalization
+  {$IFDEF FPC}
+  if (ReindexThrottleThread <> nil) then
+  begin
+    ReindexThrottleThread.Terminate;
+    ReindexThrottleThread.WaitFor;
+    FreeAndNil(ReindexThrottleThread);
+  end;
+  {$ENDIF}
+  System.DoneCriticalSection(ReindexThrottleLock);
 
 end.
