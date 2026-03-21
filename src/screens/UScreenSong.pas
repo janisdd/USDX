@@ -3222,6 +3222,9 @@ end;
 
 procedure TScreenSong.OnShowFinish;
 begin
+  if assigned(Songs) then
+    Songs.MergeSongListSafeIfPending;
+
   DuetChange := false;
   RapToFreestyle := false;
 

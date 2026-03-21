@@ -99,6 +99,7 @@ type
     fParseSongDirectory: boolean;
     fProcessing:         boolean;
     BrowseTXTFilesSafeLock: System.TRTLCriticalSection;
+    MergeSongListSafePending: Boolean;
     procedure ClearSongListSafe;
     function MergeSongListSafeIntoSongList: Integer;
     procedure MergeSongListSafe;
@@ -119,6 +120,7 @@ type
     procedure BrowseDir(Dir: IPath); // should return number of songs in the future
     procedure BrowseTXTFiles(Dir: IPath);
     procedure BrowseTXTFilesSafe(Dir: IPath);
+    procedure MergeSongListSafeIfPending;
     procedure LockSongListSafe;
     procedure UnlockSongListSafe;
     procedure Sort(Order: TSortingType);
@@ -173,6 +175,7 @@ implementation
 uses
   StrUtils,
   UCovers,
+  UDisplay,
   UFiles,
   UGraphic,
   UMain,
@@ -184,7 +187,7 @@ uses
 procedure MergeSongListSafeInMainThread(Data: Pointer);
 begin
   if (Data <> nil) then
-    TSongs(Data).MergeSongListSafe;
+    TSongs(Data).MergeSongListSafeIfPending;
 end;
 
 procedure TSongs.ClearSongListSafe;
@@ -437,11 +440,32 @@ begin
     end;
 
     SetLength(Files, 0);
+    MergeSongListSafePending := true;
   finally
     System.LeaveCriticalSection(BrowseTXTFilesSafeLock);
   end;
 
   MainThreadExec(@MergeSongListSafeInMainThread, Self);
+end;
+
+procedure TSongs.MergeSongListSafeIfPending;
+var
+  ShouldMerge: Boolean;
+begin
+  if (Display = nil) or (Display.CurrentScreen <> @ScreenSong) then
+    Exit;
+
+  System.EnterCriticalSection(BrowseTXTFilesSafeLock);
+  try
+    ShouldMerge := MergeSongListSafePending;
+    if ShouldMerge then
+      MergeSongListSafePending := false;
+  finally
+    System.LeaveCriticalSection(BrowseTXTFilesSafeLock);
+  end;
+
+  if ShouldMerge then
+    MergeSongListSafe;
 end;
 
 procedure TSongs.MergeSongListSafe;
