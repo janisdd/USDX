@@ -77,6 +77,7 @@ procedure HandleAddSongsRequest(const Songs: TCompanionSongArray; out ResponseJs
   out ResponseCode: Integer); forward;
 procedure HandleSelectSongRequest(const Title, Artist: UTF8String; out ResponseJson: UTF8String;
   out ResponseCode: Integer); forward;
+procedure HandleStartSelectedSongRequest(out ResponseJson: UTF8String; out ResponseCode: Integer); forward;
 procedure HandleSetCompanionPlaylistRequest(const Songs: TCompanionSongArray; out ResponseJson: UTF8String;
   out ResponseCode: Integer); forward;
 procedure HandleReindexDirRequest(const Request: TCompanionReindexDirRequest; out ResponseJson: UTF8String;
@@ -95,6 +96,7 @@ procedure CompanionRouteReindexDir(ARequest: TRequest; AResponse: TResponse); fo
 procedure CompanionRouteReindexSingleSongDir(ARequest: TRequest; AResponse: TResponse); forward;
 procedure CompanionRouteCurrentSong(ARequest: TRequest; AResponse: TResponse); forward;
 procedure CompanionRouteSelectSong(ARequest: TRequest; AResponse: TResponse); forward;
+procedure CompanionRouteStartSelectedSong(ARequest: TRequest; AResponse: TResponse); forward;
 procedure CompanionRouteNotFound(ARequest: TRequest; AResponse: TResponse); forward;
 procedure RegisterCompanionRoutes(ARouter: THTTPRouter); forward;
 
@@ -149,6 +151,13 @@ begin
   finally
     Dispose(SelectData);
   end;
+end;
+
+procedure StartSelectedSongInUi(Data: Pointer);
+begin
+  if (ScreenSong = nil) then
+    Exit;
+  ScreenSong.ParseInput(SDLK_RETURN, 0, true);
 end;
 
 procedure TCompanionReindexThrottleThread.Execute;
@@ -481,6 +490,39 @@ begin
   ResponseCode := 200;
 end;
 
+procedure HandleStartSelectedSongRequest(out ResponseJson: UTF8String; out ResponseCode: Integer);
+begin
+  if (Display = nil) or (Display.CurrentScreen <> @ScreenSong) then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'Not on song select screen', 409);
+    Exit;
+  end;
+
+  if (not Assigned(ScreenSong)) or (not Assigned(CatSongs)) then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'Song screen not ready', 503);
+    Exit;
+  end;
+
+  if (Songs.SongList.Count = 0) or (Length(CatSongs.Song) = 0) then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'No songs loaded', 409);
+    Exit;
+  end;
+
+  if (ScreenSong.Interaction < Low(CatSongs.Song)) or
+     (ScreenSong.Interaction > High(CatSongs.Song)) then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'No song selected', 409);
+    Exit;
+  end;
+
+  ExecInMainThread(@StartSelectedSongInUi, nil);
+  Log.LogStatus('Companion', 'Start selected song (simulated Enter)');
+  ResponseJson := '{"ok":true}';
+  ResponseCode := 200;
+end;
+
 procedure HandleSetCompanionPlaylistRequest(const Songs: TCompanionSongArray; out ResponseJson: UTF8String;
   out ResponseCode: Integer);
 var
@@ -747,6 +789,23 @@ begin
   AResponse.Content := ResponseJson;
 end;
 
+procedure CompanionRouteStartSelectedSong(ARequest: TRequest; AResponse: TResponse);
+var
+  ResponseJson: UTF8String;
+  ResponseCode: Integer;
+begin
+  if CompareText(ARequest.Method, 'POST') <> 0 then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'Method not allowed', 405);
+    AResponse.Code := ResponseCode;
+    AResponse.Content := ResponseJson;
+    Exit;
+  end;
+  HandleStartSelectedSongRequest(ResponseJson, ResponseCode);
+  AResponse.Code := ResponseCode;
+  AResponse.Content := ResponseJson;
+end;
+
 procedure CompanionRouteNotFound(ARequest: TRequest; AResponse: TResponse);
 var
   ResponseJson: UTF8String;
@@ -766,6 +825,7 @@ begin
   ARouter.RegisterRoute('/reindexSingleSongDir', @CompanionRouteReindexSingleSongDir);
   ARouter.RegisterRoute('/currentSong', @CompanionRouteCurrentSong);
   ARouter.RegisterRoute('/selectSong', @CompanionRouteSelectSong);
+  ARouter.RegisterRoute('/startSelectedSong', @CompanionRouteStartSelectedSong);
   ARouter.RegisterRoute('*', @CompanionRouteNotFound, True);
 end;
 
