@@ -21,6 +21,7 @@ implementation
 uses
   Classes,
   SysUtils,
+  UCompanionHelpers,
   UIni,
   ULog,
   UPath,
@@ -29,10 +30,11 @@ uses
   USongs,
   UDisplay,
   UGraphic,
-  UNote,
   sdl2
   {$IFDEF FPC}
   , fphttpserver
+  , httpdefs
+  , httproute
   , fpjson
   , jsonparser
   {$ENDIF}
@@ -48,6 +50,7 @@ type
   TCompanionServerThread = class(TThread)
   private
     FHttpServer: TFPHTTPServer;
+    FRouter: THTTPRouter;
     FPort: integer;
     procedure HandleRequest(Sender: TObject; var ARequest: TFPHTTPConnectionRequest;
       var AResponse: TFPHTTPConnectionResponse);
@@ -70,18 +73,6 @@ var
 function FindPlaylistIndexByName(const PlaylistName: UTF8String): Integer; forward;
 procedure EnsureCompanionPlaylist(const PlaylistName: UTF8String); forward;
 function TryParseSongRequest(const Body: string; out Title, Artist: UTF8String): boolean; forward;
-type
-  TCompanionSong = record
-    Title: UTF8String;
-    Artist: UTF8String;
-  end;
-  TCompanionReindexDirRequest = record
-    SongsDirName: UTF8String;
-  end;
-  TCompanionSongArray = array of TCompanionSong;
-
-function TryParseSongsRequest(const Body: string; out Songs: TCompanionSongArray): boolean; forward;
-function TryParseReindexDirRequest(const Body: string; out Request: TCompanionReindexDirRequest): boolean; forward;
 procedure HandleAddSongsRequest(const Songs: TCompanionSongArray; out ResponseJson: UTF8String;
   out ResponseCode: Integer); forward;
 procedure HandleSelectSongRequest(const Title, Artist: UTF8String; out ResponseJson: UTF8String;
@@ -90,12 +81,22 @@ procedure HandleSetCompanionPlaylistRequest(const Songs: TCompanionSongArray; ou
   out ResponseCode: Integer); forward;
 procedure HandleReindexDirRequest(const Request: TCompanionReindexDirRequest; out ResponseJson: UTF8String;
   out ResponseCode: Integer); forward;
+procedure HandleReindexSingleSongDirRequest(const Request: TCompanionReindexSingleSongDirRequest;
+  out ResponseJson: UTF8String; out ResponseCode: Integer); forward;
 procedure SetErrorResponse(out ResponseJson: UTF8String; out ResponseCode: Integer;
   const Message: UTF8String; Code: Integer); forward;
 function GetReindexThrottleWindowMs: QWord; forward;
 procedure ExecuteReindexForPath(const SongPath: IPath); forward;
 function TryScheduleReindex(const SongPath: IPath; const SongsDirName: UTF8String;
   out RetryAfterMs: QWord): Boolean; forward;
+procedure CompanionRouteSetCompanionPlaylist(ARequest: TRequest; AResponse: TResponse); forward;
+procedure CompanionRouteAddToCompanionPlaylist(ARequest: TRequest; AResponse: TResponse); forward;
+procedure CompanionRouteReindexDir(ARequest: TRequest; AResponse: TResponse); forward;
+procedure CompanionRouteReindexSingleSongDir(ARequest: TRequest; AResponse: TResponse); forward;
+procedure CompanionRouteCurrentSong(ARequest: TRequest; AResponse: TResponse); forward;
+procedure CompanionRouteSelectSong(ARequest: TRequest; AResponse: TResponse); forward;
+procedure CompanionRouteNotFound(ARequest: TRequest; AResponse: TResponse); forward;
+procedure RegisterCompanionRoutes(ARouter: THTTPRouter); forward;
 
 type
   TMainThreadExecProc = procedure(Data: Pointer);
@@ -192,58 +193,10 @@ begin
   end;
 end;
 
-function GenerateCurrentSongJson: UTF8String;
-var
-  SongDetails: TJSONObject;
-  JSONRoot: TJSONObject;
-begin
-  JSONRoot := TJSONObject.Create;
-  try
-    if Assigned(CurrentSong) and (Display <> nil) and (Display.CurrentScreen = @ScreenSing) then
-    begin
-      JSONRoot.Add('playing', true);
-      SongDetails := TJSONObject.Create;
-      SongDetails.Add('artist', UTF8Encode(CurrentSong.Artist));
-      SongDetails.Add('title', UTF8Encode(CurrentSong.Title));
-      SongDetails.Add('genre', UTF8Encode(CurrentSong.Genre));
-      SongDetails.Add('year', CurrentSong.Year);
-      SongDetails.Add('language', UTF8Encode(CurrentSong.Language));
-      SongDetails.Add('edition', UTF8Encode(CurrentSong.Edition));
-      SongDetails.Add('lang', UTF8Encode(CurrentSong.Language));
-
-      // not important for us
-      // if CurrentSong.Creator <> '' then
-      //   SongDetails.Add('creator', UTF8Encode(CurrentSong.Creator))
-      // else
-      //   SongDetails.Add('creator', TJSONNull.Create);
-
-      // SongDetails.Add('duet', CurrentSong.isDuet);
-      // SongDetails.Add('hasRap', CurrentSong.hasRap);
-
-      JSONRoot.Add('song', SongDetails);
-    end
-    else
-    begin
-      JSONRoot.Add('playing', false);
-      JSONRoot.Add('song', TJSONNull.Create);
-    end;
-    Result := UTF8String(JSONRoot.AsJSON);
-  finally
-    JSONRoot.Free;
-  end;
-end;
-
 procedure TCompanionServerThread.HandleRequest(Sender: TObject; var ARequest: TFPHTTPConnectionRequest;
   var AResponse: TFPHTTPConnectionResponse);
 var
   Body: string;
-  Songs: TCompanionSongArray;
-  ReindexDirRequest: TCompanionReindexDirRequest;
-  Title: UTF8String;
-  Artist: UTF8String;
-  ResponseJson: UTF8String;
-  ResponseCode: Integer;
-  Path: string;
 begin
   Body := ARequest.Content;
   if (Body <> '') then
@@ -252,49 +205,7 @@ begin
     Log.LogStatus('Companion', 'Request: ' + ARequest.Method + ' ' + ARequest.URI);
 
   AResponse.ContentType := 'application/json';
-  Path := ARequest.PathInfo;
-  if (Path = '') then
-    Path := ARequest.URI;
-
-  ResponseCode := 200;
-  if (Path = '/setCompanionPlaylist') then
-  begin
-    if not TryParseSongsRequest(Body, Songs) then
-      SetErrorResponse(ResponseJson, ResponseCode, 'Invalid JSON', 400)
-    else
-      HandleSetCompanionPlaylistRequest(Songs, ResponseJson, ResponseCode);
-  end
-  else if (Path = '/addToCompanionPlaylist') then
-  begin
-    if not TryParseSongsRequest(Body, Songs) then
-      SetErrorResponse(ResponseJson, ResponseCode, 'Invalid JSON', 400)
-    else
-      HandleAddSongsRequest(Songs, ResponseJson, ResponseCode);
-  end
-  else if (Path = '/reindexDir') then
-  begin
-    if not TryParseReindexDirRequest(Body, ReindexDirRequest) then
-      SetErrorResponse(ResponseJson, ResponseCode, 'Invalid JSON', 400)
-    else
-      HandleReindexDirRequest(ReindexDirRequest, ResponseJson, ResponseCode);
-  end
-  else if (Path = '/currentSong') then
-  begin
-    ResponseJson := GenerateCurrentSongJson;
-    ResponseCode := 200;
-  end
-  else
-  begin
-    if not TryParseSongRequest(Body, Title, Artist) then
-      SetErrorResponse(ResponseJson, ResponseCode, 'Invalid JSON', 400)
-    else if (Path = '/selectSong') then
-      HandleSelectSongRequest(Title, Artist, ResponseJson, ResponseCode)
-    else
-      SetErrorResponse(ResponseJson, ResponseCode, 'Unknown route', 404);
-  end;
-
-  AResponse.Code := ResponseCode;
-  AResponse.Content := ResponseJson;
+  FRouter.RouteRequest(ARequest, AResponse);
 end;
 
 constructor TCompanionServerThread.Create(APort: integer);
@@ -306,23 +217,29 @@ end;
 
 procedure TCompanionServerThread.Execute;
 begin
+  FRouter := THTTPRouter.Create(nil);
   try
+    RegisterCompanionRoutes(FRouter);
     FHttpServer := TFPHTTPServer.Create(nil);
-    FHttpServer.Port := Word(FPort);
-    FHttpServer.Threaded := true;
-    FHttpServer.OnRequest := HandleRequest;
-    FHttpServer.Active := true;
+    try
+      FHttpServer.Port := Word(FPort);
+      FHttpServer.Threaded := true;
+      FHttpServer.OnRequest := HandleRequest;
+      FHttpServer.Active := true;
 
-    Log.LogStatus('Companion', 'HTTP server listening on port ' + IntToStr(FPort));
+      Log.LogStatus('Companion', 'HTTP server listening on port ' + IntToStr(FPort));
 
-    while not Terminated do
-      Sleep(50);
-  finally
-    if (FHttpServer <> nil) then
-    begin
-      FHttpServer.Active := false;
-      FreeAndNil(FHttpServer);
+      while not Terminated do
+        Sleep(50);
+    finally
+      if (FHttpServer <> nil) then
+      begin
+        FHttpServer.Active := false;
+        FreeAndNil(FHttpServer);
+      end;
     end;
+  finally
+    FreeAndNil(FRouter);
   end;
 end;
 
@@ -395,79 +312,6 @@ begin
     Artist := Obj.Get('artist', '');
 
     Result := (Trim(Title) <> '') and (Trim(Artist) <> '');
-  finally
-    Data.Free;
-  end;
-end;
-
-function TryParseSongsRequest(const Body: string; out Songs: TCompanionSongArray): boolean;
-var
-  Data: TJSONData;
-  Obj: TJSONObject;
-  SongsData: TJSONData;
-  SongsArray: TJSONArray;
-  ItemObj: TJSONObject;
-  I: Integer;
-  Title: UTF8String;
-  Artist: UTF8String;
-begin
-  Result := false;
-  SetLength(Songs, 0);
-
-  if (Trim(Body) = '') then
-    Exit;
-
-  Data := GetJSON(Body);
-  try
-    if (Data.JSONType <> jtObject) then
-      Exit;
-    Obj := TJSONObject(Data);
-
-    SongsData := Obj.Find('songs');
-    if (SongsData = nil) or (SongsData.JSONType <> jtArray) then
-      Exit;
-
-    SongsArray := TJSONArray(SongsData);
-    if (SongsArray.Count > 0) then
-      SetLength(Songs, SongsArray.Count);
-    for I := 0 to SongsArray.Count - 1 do
-    begin
-      if (SongsArray.Items[I].JSONType <> jtObject) then
-        Exit;
-      ItemObj := TJSONObject(SongsArray.Items[I]);
-      Title := ItemObj.Get('title', '');
-      Artist := ItemObj.Get('artist', '');
-      if (Trim(Title) = '') or (Trim(Artist) = '') then
-        Exit;
-      Songs[I].Title := Title;
-      Songs[I].Artist := Artist;
-    end;
-
-    Result := true;
-  finally
-    Data.Free;
-  end;
-end;
-
-function TryParseReindexDirRequest(const Body: string; out Request: TCompanionReindexDirRequest): boolean;
-var
-  Data: TJSONData;
-  Obj: TJSONObject;
-begin
-  Result := false;
-  Request.SongsDirName := '';
-
-  if (Trim(Body) = '') then
-    Exit;
-
-  Data := GetJSON(Body);
-  try
-    if (Data.JSONType <> jtObject) then
-      Exit;
-    Obj := TJSONObject(Data);
-
-    Request.SongsDirName := Obj.Get('songsDirName', '');
-    Result := Trim(Request.SongsDirName) <> '';
   finally
     Data.Free;
   end;
@@ -747,6 +591,185 @@ begin
 
   SetErrorResponse(ResponseJson, ResponseCode, 'Songs directory not found: ' + SongsDirName, 404);
 end;
+
+procedure HandleReindexSingleSongDirRequest(const Request: TCompanionReindexSingleSongDirRequest;
+  out ResponseJson: UTF8String; out ResponseCode: Integer);
+var
+  I: Integer;
+  SingleName: UTF8String;
+  SinglePath: IPath;
+  RootPath: IPath;
+  RetryAfterMs: QWord;
+  LogLabel: UTF8String;
+begin
+  SingleName := Trim(Request.SingleSongDirName);
+  if (SingleName = '') then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'singleSongDirName must not be empty', 400);
+    Exit;
+  end;
+
+  if (Songs = nil) then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'Songs subsystem not ready', 503);
+    Exit;
+  end;
+
+  SinglePath := Path(SingleName).GetAbsolutePath().RemovePathDelim();
+  if (not SinglePath.Exists()) then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'Song directory not found: ' + SingleName, 404);
+    Exit;
+  end;
+  if (not SinglePath.IsDirectory()) then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'singleSongDirName must be a directory', 400);
+    Exit;
+  end;
+
+  if (SongPaths <> nil) then
+  begin
+    for I := 0 to SongPaths.Count - 1 do
+    begin
+      RootPath := (SongPaths[I] as IPath).GetAbsolutePath().RemovePathDelim();
+      if SinglePath.IsChildOf(RootPath, false) then
+      begin
+        LogLabel := UTF8String(SinglePath.ToUTF8(false));
+        if not TryScheduleReindex(SinglePath, LogLabel, RetryAfterMs) then
+        begin
+          Log.LogStatus('Companion', 'Queued trailing reindex for singleSongDir: ' + LogLabel);
+          ResponseJson := '{"ok":true,"queued":true,"retryAfterMs":' + IntToStr(RetryAfterMs) + '}';
+          ResponseCode := 202;
+          Exit;
+        end;
+
+        ExecuteReindexForPath(SinglePath);
+        ResponseJson := '{"ok":true}';
+        ResponseCode := 200;
+        Exit;
+      end;
+    end;
+  end;
+
+  SetErrorResponse(ResponseJson, ResponseCode,
+    'Song directory is not under a configured songs root: ' + SingleName, 404);
+end;
+
+{$IFDEF FPC}
+
+procedure CompanionRouteSetCompanionPlaylist(ARequest: TRequest; AResponse: TResponse);
+var
+  Body: string;
+  Songs: TCompanionSongArray;
+  ResponseJson: UTF8String;
+  ResponseCode: Integer;
+begin
+  Body := ARequest.Content;
+  if not TryParseSongsRequest(Body, Songs) then
+    SetErrorResponse(ResponseJson, ResponseCode, 'Invalid JSON', 400)
+  else
+    HandleSetCompanionPlaylistRequest(Songs, ResponseJson, ResponseCode);
+  AResponse.Code := ResponseCode;
+  AResponse.Content := ResponseJson;
+end;
+
+procedure CompanionRouteAddToCompanionPlaylist(ARequest: TRequest; AResponse: TResponse);
+var
+  Body: string;
+  Songs: TCompanionSongArray;
+  ResponseJson: UTF8String;
+  ResponseCode: Integer;
+begin
+  Body := ARequest.Content;
+  if not TryParseSongsRequest(Body, Songs) then
+    SetErrorResponse(ResponseJson, ResponseCode, 'Invalid JSON', 400)
+  else
+    HandleAddSongsRequest(Songs, ResponseJson, ResponseCode);
+  AResponse.Code := ResponseCode;
+  AResponse.Content := ResponseJson;
+end;
+
+procedure CompanionRouteReindexDir(ARequest: TRequest; AResponse: TResponse);
+var
+  Body: string;
+  ReindexDirRequest: TCompanionReindexDirRequest;
+  ResponseJson: UTF8String;
+  ResponseCode: Integer;
+begin
+  Body := ARequest.Content;
+  if not TryParseReindexDirRequest(Body, ReindexDirRequest) then
+    SetErrorResponse(ResponseJson, ResponseCode, 'Invalid JSON', 400)
+  else
+    HandleReindexDirRequest(ReindexDirRequest, ResponseJson, ResponseCode);
+  AResponse.Code := ResponseCode;
+  AResponse.Content := ResponseJson;
+end;
+
+procedure CompanionRouteReindexSingleSongDir(ARequest: TRequest; AResponse: TResponse);
+var
+  Body: string;
+  Req: TCompanionReindexSingleSongDirRequest;
+  ResponseJson: UTF8String;
+  ResponseCode: Integer;
+begin
+  Body := ARequest.Content;
+  if not TryParseReindexSingleSongDirRequest(Body, Req) then
+    SetErrorResponse(ResponseJson, ResponseCode, 'Invalid JSON', 400)
+  else
+    HandleReindexSingleSongDirRequest(Req, ResponseJson, ResponseCode);
+  AResponse.Code := ResponseCode;
+  AResponse.Content := ResponseJson;
+end;
+
+procedure CompanionRouteCurrentSong(ARequest: TRequest; AResponse: TResponse);
+var
+  ResponseJson: UTF8String;
+begin
+  ResponseJson := GenerateCurrentSongJson;
+  AResponse.Code := 200;
+  AResponse.Content := ResponseJson;
+end;
+
+procedure CompanionRouteSelectSong(ARequest: TRequest; AResponse: TResponse);
+var
+  Body: string;
+  Title: UTF8String;
+  Artist: UTF8String;
+  ResponseJson: UTF8String;
+  ResponseCode: Integer;
+begin
+  Body := ARequest.Content;
+  if not TryParseSongRequest(Body, Title, Artist) then
+    SetErrorResponse(ResponseJson, ResponseCode, 'Invalid JSON', 400)
+  else
+    HandleSelectSongRequest(Title, Artist, ResponseJson, ResponseCode);
+  AResponse.Code := ResponseCode;
+  AResponse.Content := ResponseJson;
+end;
+
+procedure CompanionRouteNotFound(ARequest: TRequest; AResponse: TResponse);
+var
+  ResponseJson: UTF8String;
+  ResponseCode: Integer;
+begin
+  Log.LogStatus('Companion', 'Unknown route: ' + ARequest.Method + ' ' + ARequest.URI);
+  SetErrorResponse(ResponseJson, ResponseCode, 'Unknown route', 404);
+  AResponse.Code := ResponseCode;
+  AResponse.Content := ResponseJson;
+end;
+
+procedure RegisterCompanionRoutes(ARouter: THTTPRouter);
+begin
+  ARouter.RegisterRoute('/setCompanionPlaylist', @CompanionRouteSetCompanionPlaylist);
+  ARouter.RegisterRoute('/addToCompanionPlaylist', @CompanionRouteAddToCompanionPlaylist);
+  ARouter.RegisterRoute('/reindexRootDir', @CompanionRouteReindexDir);
+  ARouter.RegisterRoute('/reindexSingleSongDir', @CompanionRouteReindexSingleSongDir);
+  ARouter.RegisterRoute('/currentSong', @CompanionRouteCurrentSong);
+  ARouter.RegisterRoute('/selectSong', @CompanionRouteSelectSong);
+  ARouter.RegisterRoute('*', @CompanionRouteNotFound, True);
+end;
+
+{$ENDIF}
 
 procedure StartCompanionServer(Port: integer; const PlaylistName: UTF8String);
 begin

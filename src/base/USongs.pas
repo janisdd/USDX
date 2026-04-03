@@ -237,6 +237,10 @@ begin
       ExistingSongPath := ExistingSong.Path.Append(ExistingSong.FileName);
       if ExistingSongPath.Equals(SongPath) then
       begin
+        SongList[J] := Song;
+        SongListSafe[I] := nil;
+        FreeAndNil(ExistingSong);
+        Inc(Result);
         IsDuplicate := true;
         Break;
       end;
@@ -473,7 +477,7 @@ end;
 
 procedure TSongs.MergeSongListSafe;
 var
-  AddedSongs: Integer;
+  AddedOrChangedSongs: Integer;
   PrevCatNumShow: Integer;
   PrevFilterText: UTF8String;
   PrevFilterType: TSongFilter;
@@ -610,15 +614,15 @@ begin
 
   System.EnterCriticalSection(BrowseTXTFilesSafeLock);
   try
-    AddedSongs := MergeSongListSafeIntoSongList;
+    AddedOrChangedSongs := MergeSongListSafeIntoSongList;
   finally
     System.LeaveCriticalSection(BrowseTXTFilesSafeLock);
   end;
 
-  if (AddedSongs <= 0) then
+  if (AddedOrChangedSongs <= 0) then
     Exit;
 
-  Log.LogStatus('Added ' + IntToStr(AddedSongs) + ' songs after reindex', 'TSongs.MergeSongListSafe');
+  Log.LogStatus('Added ' + IntToStr(AddedOrChangedSongs) + ' songs after reindex', 'TSongs.MergeSongListSafe');
 
   if assigned(CatSongs) then
   begin
