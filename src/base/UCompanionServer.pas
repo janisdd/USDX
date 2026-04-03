@@ -29,6 +29,7 @@ uses
   USongs,
   UDisplay,
   UGraphic,
+  UNote,
   sdl2
   {$IFDEF FPC}
   , fphttpserver
@@ -191,6 +192,47 @@ begin
   end;
 end;
 
+function GenerateCurrentSongJson: UTF8String;
+var
+  SongDetails: TJSONObject;
+  JSONRoot: TJSONObject;
+begin
+  JSONRoot := TJSONObject.Create;
+  try
+    if Assigned(CurrentSong) and (Display <> nil) and (Display.CurrentScreen = @ScreenSing) then
+    begin
+      JSONRoot.Add('playing', true);
+      SongDetails := TJSONObject.Create;
+      SongDetails.Add('artist', UTF8Encode(CurrentSong.Artist));
+      SongDetails.Add('title', UTF8Encode(CurrentSong.Title));
+      SongDetails.Add('genre', UTF8Encode(CurrentSong.Genre));
+      SongDetails.Add('year', CurrentSong.Year);
+      SongDetails.Add('language', UTF8Encode(CurrentSong.Language));
+      SongDetails.Add('edition', UTF8Encode(CurrentSong.Edition));
+      SongDetails.Add('lang', UTF8Encode(CurrentSong.Language));
+
+      // not important for us
+      // if CurrentSong.Creator <> '' then
+      //   SongDetails.Add('creator', UTF8Encode(CurrentSong.Creator))
+      // else
+      //   SongDetails.Add('creator', TJSONNull.Create);
+
+      // SongDetails.Add('duet', CurrentSong.isDuet);
+      // SongDetails.Add('hasRap', CurrentSong.hasRap);
+
+      JSONRoot.Add('song', SongDetails);
+    end
+    else
+    begin
+      JSONRoot.Add('playing', false);
+      JSONRoot.Add('song', TJSONNull.Create);
+    end;
+    Result := UTF8String(JSONRoot.AsJSON);
+  finally
+    JSONRoot.Free;
+  end;
+end;
+
 procedure TCompanionServerThread.HandleRequest(Sender: TObject; var ARequest: TFPHTTPConnectionRequest;
   var AResponse: TFPHTTPConnectionResponse);
 var
@@ -235,6 +277,11 @@ begin
       SetErrorResponse(ResponseJson, ResponseCode, 'Invalid JSON', 400)
     else
       HandleReindexDirRequest(ReindexDirRequest, ResponseJson, ResponseCode);
+  end
+  else if (Path = '/currentSong') then
+  begin
+    ResponseJson := GenerateCurrentSongJson;
+    ResponseCode := 200;
   end
   else
   begin
