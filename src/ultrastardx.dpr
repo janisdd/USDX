@@ -353,6 +353,7 @@ uses
   UDLLManager             in 'base\UDLLManager.pas',
 
   UPartyTournament              in 'base\UPartyTournament.pas',
+  UCompanionHelpers       in 'base\UCompanionHelpers.pas',
   UCompanionServer        in 'base\UCompanionServer.pas',
   UScreenPartyTournamentRounds  in 'screens\UScreenPartyTournamentRounds.pas',
   UScreenPartyTournamentPlayer  in 'screens\UScreenPartyTournamentPlayer.pas',
