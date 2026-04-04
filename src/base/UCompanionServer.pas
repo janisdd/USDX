@@ -79,6 +79,8 @@ procedure HandleSelectSongRequest(const Title, Artist: UTF8String; out ResponseJ
   out ResponseCode: Integer); forward;
 procedure HandleStartSelectedSongRequest(out ResponseJson: UTF8String; out ResponseCode: Integer); forward;
 procedure HandleCloseScoreScreenRequest(out ResponseJson: UTF8String; out ResponseCode: Integer); forward;
+procedure HandleTogglePauseCurrentSongRequest(out ResponseJson: UTF8String; out ResponseCode: Integer); forward;
+procedure HandleCancelCurrentSongRequest(out ResponseJson: UTF8String; out ResponseCode: Integer); forward;
 procedure HandleSetCompanionPlaylistRequest(const Songs: TCompanionSongArray; out ResponseJson: UTF8String;
   out ResponseCode: Integer); forward;
 procedure HandleReindexDirRequest(const Request: TCompanionReindexDirRequest; out ResponseJson: UTF8String;
@@ -99,6 +101,8 @@ procedure CompanionRouteCurrentSong(ARequest: TRequest; AResponse: TResponse); f
 procedure CompanionRouteSelectSong(ARequest: TRequest; AResponse: TResponse); forward;
 procedure CompanionRouteStartSelectedSong(ARequest: TRequest; AResponse: TResponse); forward;
 procedure CompanionRouteCloseScoreScreen(ARequest: TRequest; AResponse: TResponse); forward;
+procedure CompanionRouteTogglePauseCurrentSong(ARequest: TRequest; AResponse: TResponse); forward;
+procedure CompanionRouteCancelCurrentSong(ARequest: TRequest; AResponse: TResponse); forward;
 procedure CompanionRouteNotFound(ARequest: TRequest; AResponse: TResponse); forward;
 procedure RegisterCompanionRoutes(ARouter: THTTPRouter); forward;
 
@@ -169,6 +173,22 @@ begin
   { Escape alone is insufficient from here: ParseInput only fades when
     FinishScreenDraw is true, which normally flips after Draw runs animations. }
   ScreenScore.CompanionDismiss;
+end;
+
+procedure TogglePauseCurrentSongInUi(Data: Pointer);
+begin
+  if (ScreenSing = nil) or (Display = nil) or (Display.CurrentScreen <> @ScreenSing) then
+    Exit;
+  { Same as SDLK_P / SDLK_SPACE in UScreenSingController.ParseInput. }
+  ScreenSing.Pause;
+end;
+
+procedure CancelCurrentSongInUi(Data: Pointer);
+begin
+  if (ScreenSing = nil) or (Display = nil) or (Display.CurrentScreen <> @ScreenSing) then
+    Exit;
+  { Same as SDLK_ESCAPE / SDLK_BACKSPACE in UScreenSingController.ParseInput. }
+  ScreenSing.ParseInput(SDLK_ESCAPE, 0, true);
 end;
 
 procedure TCompanionReindexThrottleThread.Execute;
@@ -554,6 +574,46 @@ begin
   ResponseCode := 200;
 end;
 
+procedure HandleTogglePauseCurrentSongRequest(out ResponseJson: UTF8String; out ResponseCode: Integer);
+begin
+  if (Display = nil) or (Display.CurrentScreen <> @ScreenSing) then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'Not on sing screen', 409);
+    Exit;
+  end;
+
+  if not Assigned(ScreenSing) then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'Sing screen not ready', 503);
+    Exit;
+  end;
+
+  ExecInMainThread(@TogglePauseCurrentSongInUi, nil);
+  Log.LogStatus('Companion', 'Toggle pause current song');
+  ResponseJson := '{"ok":true}';
+  ResponseCode := 200;
+end;
+
+procedure HandleCancelCurrentSongRequest(out ResponseJson: UTF8String; out ResponseCode: Integer);
+begin
+  if (Display = nil) or (Display.CurrentScreen <> @ScreenSing) then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'Not on sing screen', 409);
+    Exit;
+  end;
+
+  if not Assigned(ScreenSing) then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'Sing screen not ready', 503);
+    Exit;
+  end;
+
+  ExecInMainThread(@CancelCurrentSongInUi, nil);
+  Log.LogStatus('Companion', 'Cancel current song (Escape path)');
+  ResponseJson := '{"ok":true}';
+  ResponseCode := 200;
+end;
+
 procedure HandleSetCompanionPlaylistRequest(const Songs: TCompanionSongArray; out ResponseJson: UTF8String;
   out ResponseCode: Integer);
 var
@@ -854,6 +914,40 @@ begin
   AResponse.Content := ResponseJson;
 end;
 
+procedure CompanionRouteTogglePauseCurrentSong(ARequest: TRequest; AResponse: TResponse);
+var
+  ResponseJson: UTF8String;
+  ResponseCode: Integer;
+begin
+  if CompareText(ARequest.Method, 'POST') <> 0 then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'Method not allowed', 405);
+    AResponse.Code := ResponseCode;
+    AResponse.Content := ResponseJson;
+    Exit;
+  end;
+  HandleTogglePauseCurrentSongRequest(ResponseJson, ResponseCode);
+  AResponse.Code := ResponseCode;
+  AResponse.Content := ResponseJson;
+end;
+
+procedure CompanionRouteCancelCurrentSong(ARequest: TRequest; AResponse: TResponse);
+var
+  ResponseJson: UTF8String;
+  ResponseCode: Integer;
+begin
+  if CompareText(ARequest.Method, 'POST') <> 0 then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'Method not allowed', 405);
+    AResponse.Code := ResponseCode;
+    AResponse.Content := ResponseJson;
+    Exit;
+  end;
+  HandleCancelCurrentSongRequest(ResponseJson, ResponseCode);
+  AResponse.Code := ResponseCode;
+  AResponse.Content := ResponseJson;
+end;
+
 procedure CompanionRouteNotFound(ARequest: TRequest; AResponse: TResponse);
 var
   ResponseJson: UTF8String;
@@ -875,6 +969,8 @@ begin
   ARouter.RegisterRoute('/selectSong', @CompanionRouteSelectSong);
   ARouter.RegisterRoute('/startSelectedSong', @CompanionRouteStartSelectedSong);
   ARouter.RegisterRoute('/closeScoreScreen', @CompanionRouteCloseScoreScreen);
+  ARouter.RegisterRoute('/togglePauseCurrentSong', @CompanionRouteTogglePauseCurrentSong);
+  ARouter.RegisterRoute('/cancelCurrentSong', @CompanionRouteCancelCurrentSong);
   ARouter.RegisterRoute('*', @CompanionRouteNotFound, True);
 end;
 
