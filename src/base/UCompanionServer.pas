@@ -78,6 +78,7 @@ procedure HandleAddSongsRequest(const Songs: TCompanionSongArray; out ResponseJs
 procedure HandleSelectSongRequest(const Title, Artist: UTF8String; out ResponseJson: UTF8String;
   out ResponseCode: Integer); forward;
 procedure HandleStartSelectedSongRequest(out ResponseJson: UTF8String; out ResponseCode: Integer); forward;
+procedure HandleCloseScoreScreenRequest(out ResponseJson: UTF8String; out ResponseCode: Integer); forward;
 procedure HandleSetCompanionPlaylistRequest(const Songs: TCompanionSongArray; out ResponseJson: UTF8String;
   out ResponseCode: Integer); forward;
 procedure HandleReindexDirRequest(const Request: TCompanionReindexDirRequest; out ResponseJson: UTF8String;
@@ -97,6 +98,7 @@ procedure CompanionRouteReindexSingleSongDir(ARequest: TRequest; AResponse: TRes
 procedure CompanionRouteCurrentSong(ARequest: TRequest; AResponse: TResponse); forward;
 procedure CompanionRouteSelectSong(ARequest: TRequest; AResponse: TResponse); forward;
 procedure CompanionRouteStartSelectedSong(ARequest: TRequest; AResponse: TResponse); forward;
+procedure CompanionRouteCloseScoreScreen(ARequest: TRequest; AResponse: TResponse); forward;
 procedure CompanionRouteNotFound(ARequest: TRequest; AResponse: TResponse); forward;
 procedure RegisterCompanionRoutes(ARouter: THTTPRouter); forward;
 
@@ -158,6 +160,15 @@ begin
   if (ScreenSong = nil) then
     Exit;
   ScreenSong.ParseInput(SDLK_RETURN, 0, true);
+end;
+
+procedure CloseScoreScreenInUi(Data: Pointer);
+begin
+  if (ScreenScore = nil) or (Display = nil) or (Display.CurrentScreen <> @ScreenScore) then
+    Exit;
+  { Escape alone is insufficient from here: ParseInput only fades when
+    FinishScreenDraw is true, which normally flips after Draw runs animations. }
+  ScreenScore.CompanionDismiss;
 end;
 
 procedure TCompanionReindexThrottleThread.Execute;
@@ -523,6 +534,26 @@ begin
   ResponseCode := 200;
 end;
 
+procedure HandleCloseScoreScreenRequest(out ResponseJson: UTF8String; out ResponseCode: Integer);
+begin
+  if (Display = nil) or (Display.CurrentScreen <> @ScreenScore) then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'Not on score screen', 409);
+    Exit;
+  end;
+
+  if not Assigned(ScreenScore) then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'Score screen not ready', 503);
+    Exit;
+  end;
+
+  ExecInMainThread(@CloseScoreScreenInUi, nil);
+  Log.LogStatus('Companion', 'Close score screen (CompanionDismiss)');
+  ResponseJson := '{"ok":true}';
+  ResponseCode := 200;
+end;
+
 procedure HandleSetCompanionPlaylistRequest(const Songs: TCompanionSongArray; out ResponseJson: UTF8String;
   out ResponseCode: Integer);
 var
@@ -806,6 +837,23 @@ begin
   AResponse.Content := ResponseJson;
 end;
 
+procedure CompanionRouteCloseScoreScreen(ARequest: TRequest; AResponse: TResponse);
+var
+  ResponseJson: UTF8String;
+  ResponseCode: Integer;
+begin
+  if CompareText(ARequest.Method, 'POST') <> 0 then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'Method not allowed', 405);
+    AResponse.Code := ResponseCode;
+    AResponse.Content := ResponseJson;
+    Exit;
+  end;
+  HandleCloseScoreScreenRequest(ResponseJson, ResponseCode);
+  AResponse.Code := ResponseCode;
+  AResponse.Content := ResponseJson;
+end;
+
 procedure CompanionRouteNotFound(ARequest: TRequest; AResponse: TResponse);
 var
   ResponseJson: UTF8String;
@@ -826,6 +874,7 @@ begin
   ARouter.RegisterRoute('/currentSong', @CompanionRouteCurrentSong);
   ARouter.RegisterRoute('/selectSong', @CompanionRouteSelectSong);
   ARouter.RegisterRoute('/startSelectedSong', @CompanionRouteStartSelectedSong);
+  ARouter.RegisterRoute('/closeScoreScreen', @CompanionRouteCloseScoreScreen);
   ARouter.RegisterRoute('*', @CompanionRouteNotFound, True);
 end;
 
