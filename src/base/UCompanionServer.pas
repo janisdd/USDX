@@ -42,7 +42,14 @@ uses
 
 {$IFDEF FPC}
 type
-  TCompanionReindexThrottleThread = class(TThread)
+  TCompanionQueuedReindex = class
+  public
+    SongPath: IPath;
+    LogLabel: UTF8String;
+    constructor Create(const ASongPath: IPath; const ALogLabel: UTF8String);
+  end;
+
+  TCompanionReindexQueueThread = class(TThread)
   protected
     procedure Execute; override;
   end;
@@ -63,12 +70,10 @@ type
 
 var
   CompanionServerThread: TCompanionServerThread = nil;
-  ReindexThrottleThread: TCompanionReindexThrottleThread = nil;
-  ReindexThrottleLock: TRTLCriticalSection;
-  LastReindexRunAtMs: QWord = 0;
-  PendingReindex: Boolean = false;
-  PendingReindexSongPath: IPath = nil;
-  PendingReindexSongsDirName: UTF8String = '';
+  ReindexQueueThread: TCompanionReindexQueueThread = nil;
+  ReindexQueueLock: TRTLCriticalSection;
+  ReindexQueue: TList = nil;
+  ActiveReindexSongPath: IPath = nil;
 
 function FindPlaylistIndexByName(const PlaylistName: UTF8String): Integer; forward;
 procedure EnsureCompanionPlaylist(const PlaylistName: UTF8String); forward;
@@ -89,10 +94,14 @@ procedure HandleReindexSingleSongDirRequest(const Request: TCompanionReindexSing
   out ResponseJson: UTF8String; out ResponseCode: Integer); forward;
 procedure SetErrorResponse(out ResponseJson: UTF8String; out ResponseCode: Integer;
   const Message: UTF8String; Code: Integer); forward;
-function GetReindexThrottleWindowMs: QWord; forward;
+function BoolToJson(Value: Boolean): UTF8String; forward;
+function NormalizeReindexPath(const SongPath: IPath): IPath; forward;
+function ReindexPathsEqual(const LeftPath, RightPath: IPath): Boolean; forward;
+function IsReindexPathQueuedUnsafe(const SongPath: IPath): Boolean; forward;
+procedure ClearReindexQueueUnsafe; forward;
 procedure ExecuteReindexForPath(const SongPath: IPath); forward;
-function TryScheduleReindex(const SongPath: IPath; const SongsDirName: UTF8String;
-  out RetryAfterMs: QWord): Boolean; forward;
+procedure EnqueueReindexRequest(const SongPath: IPath; const LogLabel: UTF8String;
+  out QueueLength: Integer; out AlreadyQueued: Boolean); forward;
 procedure CompanionRouteSetCompanionPlaylist(ARequest: TRequest; AResponse: TResponse); forward;
 procedure CompanionRouteAddToCompanionPlaylist(ARequest: TRequest; AResponse: TResponse); forward;
 procedure CompanionRouteReindexDir(ARequest: TRequest; AResponse: TResponse); forward;
@@ -191,45 +200,61 @@ begin
   ScreenSing.ParseInput(SDLK_ESCAPE, 0, true);
 end;
 
-procedure TCompanionReindexThrottleThread.Execute;
+constructor TCompanionQueuedReindex.Create(const ASongPath: IPath; const ALogLabel: UTF8String);
+begin
+  inherited Create;
+  SongPath := NormalizeReindexPath(ASongPath);
+  LogLabel := ALogLabel;
+end;
+
+{
+  // Only one ExecuteReindexForPath can run at a time:
+  // This method coordinates taking a reindex request from the queue,
+  // sets ActiveReindexSongPath while running, and ensures that only
+  // one path is being reindexed at once even though the critical section
+  // is only held for queue manipulation and state changes.
+  // The lock is released during ExecuteReindexForPath to avoid blocking
+  // other threads—the lock must NOT be held for long operations.
+  // Two critical sections are required: one to take and mark a request active
+  // (other threads skip if ActiveReindexSongPath is non-nil), and another
+  // to reset ActiveReindexSongPath to nil safely after processing.
+}
+procedure TCompanionReindexQueueThread.Execute;
 var
-  SongPath: IPath;
-  SongsDirName: UTF8String;
-  NowMs: QWord;
-  WindowMs: QWord;
+  ReindexRequest: TCompanionQueuedReindex;
 begin
   while not Terminated do
   begin
-    SongPath := nil;
-    SongsDirName := '';
-    WindowMs := GetReindexThrottleWindowMs();
-
-    System.EnterCriticalSection(ReindexThrottleLock);
+    ReindexRequest := nil;
+    System.EnterCriticalSection(ReindexQueueLock);
     try
-      if PendingReindex and (LastReindexRunAtMs <> 0) then
+      if (ActiveReindexSongPath = nil) and (ReindexQueue <> nil) and (ReindexQueue.Count > 0) then
       begin
-        NowMs := GetTickCount64();
-        if (NowMs - LastReindexRunAtMs >= WindowMs) then
-        begin
-          SongPath := PendingReindexSongPath;
-          SongsDirName := PendingReindexSongsDirName;
-          PendingReindex := false;
-          PendingReindexSongPath := nil;
-          PendingReindexSongsDirName := '';
-          LastReindexRunAtMs := NowMs;
-        end;
+        ReindexRequest := TCompanionQueuedReindex(ReindexQueue[0]);
+        ReindexQueue.Delete(0);
+        ActiveReindexSongPath := ReindexRequest.SongPath;
       end;
     finally
-      System.LeaveCriticalSection(ReindexThrottleLock);
+      System.LeaveCriticalSection(ReindexQueueLock);
     end;
 
-    if (SongPath <> nil) then
+    if (ReindexRequest <> nil) then
     begin
-      Log.LogStatus('Companion', 'Executing trailing reindex for songsDirName: ' + SongsDirName);
-      ExecuteReindexForPath(SongPath);
+      try
+        Log.LogStatus('Companion', 'Executing queued reindex for: ' + ReindexRequest.LogLabel);
+        ExecuteReindexForPath(ReindexRequest.SongPath);
+      finally
+        System.EnterCriticalSection(ReindexQueueLock);
+        try
+          ActiveReindexSongPath := nil;
+        finally
+          System.LeaveCriticalSection(ReindexQueueLock);
+        end;
+        ReindexRequest.Free;
+      end;
     end
     else
-      Sleep(50);
+      Sleep(250);
   end;
 end;
 
@@ -379,14 +404,69 @@ begin
   ResponseCode := Code;
 end;
 
-function GetReindexThrottleWindowMs: QWord;
-var
-  WindowSec: Integer;
+function BoolToJson(Value: Boolean): UTF8String;
 begin
-  WindowSec := Ini.CompanionReindexThrottleWindowSec;
-  if (WindowSec <= 0) then
-    WindowSec := 5;
-  Result := QWord(WindowSec) * 1000;
+  if Value then
+    Result := 'true'
+  else
+    Result := 'false';
+end;
+
+function NormalizeReindexPath(const SongPath: IPath): IPath;
+begin
+  if (SongPath = nil) then
+    Result := nil
+  else
+    Result := SongPath.GetAbsolutePath().RemovePathDelim();
+end;
+
+function ReindexPathsEqual(const LeftPath, RightPath: IPath): Boolean;
+var
+  NormalizedLeftPath: IPath;
+  NormalizedRightPath: IPath;
+begin
+  if (LeftPath = nil) or (RightPath = nil) then
+  begin
+    Result := LeftPath = RightPath;
+    Exit;
+  end;
+
+  NormalizedLeftPath := NormalizeReindexPath(LeftPath);
+  NormalizedRightPath := NormalizeReindexPath(RightPath);
+  Result := CompareText(UTF8String(NormalizedLeftPath.ToUTF8(false)),
+    UTF8String(NormalizedRightPath.ToUTF8(false))) = 0;
+end;
+
+function IsReindexPathQueuedUnsafe(const SongPath: IPath): Boolean;
+var
+  I: Integer;
+  QueuedRequest: TCompanionQueuedReindex;
+begin
+  Result := false;
+  if (ReindexQueue = nil) then
+    Exit;
+
+  for I := 0 to ReindexQueue.Count - 1 do
+  begin
+    QueuedRequest := TCompanionQueuedReindex(ReindexQueue[I]);
+    if (QueuedRequest <> nil) and ReindexPathsEqual(QueuedRequest.SongPath, SongPath) then
+    begin
+      Result := true;
+      Exit;
+    end;
+  end;
+end;
+
+procedure ClearReindexQueueUnsafe;
+var
+  I: Integer;
+begin
+  if (ReindexQueue = nil) then
+    Exit;
+
+  for I := 0 to ReindexQueue.Count - 1 do
+    TObject(ReindexQueue[I]).Free;
+  ReindexQueue.Clear;
 end;
 
 procedure ExecuteReindexForPath(const SongPath: IPath);
@@ -407,40 +487,34 @@ begin
   Log.LogStatus('Companion', 'Reindex completed for song path: ' + UTF8String(NormalizedSongPath.ToNative()));
 end;
 
-function TryScheduleReindex(const SongPath: IPath; const SongsDirName: UTF8String;
-  out RetryAfterMs: QWord): Boolean;
+procedure EnqueueReindexRequest(const SongPath: IPath; const LogLabel: UTF8String;
+  out QueueLength: Integer; out AlreadyQueued: Boolean);
 var
-  NowMs: QWord;
-  ElapsedMs: QWord;
-  WindowMs: QWord;
+  NormalizedSongPath: IPath;
 begin
-  Result := true;
-  RetryAfterMs := 0;
-  NowMs := GetTickCount64();
-  WindowMs := GetReindexThrottleWindowMs();
+  QueueLength := 0;
+  AlreadyQueued := false;
+  NormalizedSongPath := NormalizeReindexPath(SongPath);
+  if (NormalizedSongPath = nil) then
+    Exit;
 
-  System.EnterCriticalSection(ReindexThrottleLock);
+  System.EnterCriticalSection(ReindexQueueLock);
   try
-    if (LastReindexRunAtMs <> 0) then
-    begin
-      ElapsedMs := NowMs - LastReindexRunAtMs;
-      if (ElapsedMs < WindowMs) then
-      begin
-        RetryAfterMs := WindowMs - ElapsedMs;
-        PendingReindex := true;
-        PendingReindexSongPath := SongPath;
-        PendingReindexSongsDirName := SongsDirName;
-        Result := false;
-        Exit;
-      end;
-    end;
+    if (ReindexQueue = nil) then
+      ReindexQueue := TList.Create();
 
-    LastReindexRunAtMs := NowMs;
-    PendingReindex := false;
-    PendingReindexSongPath := nil;
-    PendingReindexSongsDirName := '';
+    { Keep at most one pending run per path. If the same path is already
+      waiting in the queue, that future pass is enough to pick up changes. }
+    if IsReindexPathQueuedUnsafe(NormalizedSongPath) then
+      AlreadyQueued := true
+    else
+      ReindexQueue.Add(TCompanionQueuedReindex.Create(NormalizedSongPath, LogLabel));
+
+    QueueLength := ReindexQueue.Count;
+    if (ActiveReindexSongPath <> nil) then
+      Inc(QueueLength);
   finally
-    System.LeaveCriticalSection(ReindexThrottleLock);
+    System.LeaveCriticalSection(ReindexQueueLock);
   end;
 end;
 
@@ -681,7 +755,8 @@ var
   SongsDirName: UTF8String;
   SongPath: IPath;
   SongPathText: UTF8String;
-  RetryAfterMs: QWord;
+  QueueLength: Integer;
+  AlreadyQueued: Boolean;
 begin
   SongsDirName := Trim(Request.SongsDirName);
   if (SongsDirName = '') then
@@ -706,17 +781,14 @@ begin
       if (Length(SongPathText) >= Length(SongsDirName)) and
          (CompareText(Copy(SongPathText, Length(SongPathText) - Length(SongsDirName) + 1, Length(SongsDirName)), SongsDirName) = 0) then
       begin
-        if not TryScheduleReindex(SongPath, SongsDirName, RetryAfterMs) then
-        begin
-          Log.LogStatus('Companion', 'Queued trailing reindex for songsDirName: ' + SongsDirName);
-          ResponseJson := '{"ok":true,"queued":true,"retryAfterMs":' + IntToStr(RetryAfterMs) + '}';
-          ResponseCode := 202;
-          Exit;
-        end;
-
-        ExecuteReindexForPath(SongPath);
-        ResponseJson := '{"ok":true}';
-        ResponseCode := 200;
+        EnqueueReindexRequest(SongPath, SongsDirName, QueueLength, AlreadyQueued);
+        if AlreadyQueued then
+          Log.LogStatus('Companion', 'Reindex already queued for songsDirName: ' + SongsDirName)
+        else
+          Log.LogStatus('Companion', 'Queued reindex for songsDirName: ' + SongsDirName);
+        ResponseJson := '{"ok":true,"queued":true,"alreadyQueued":' + BoolToJson(AlreadyQueued) +
+          ',"queueLength":' + IntToStr(QueueLength) + '}';
+        ResponseCode := 202;
         Exit;
       end;
     end;
@@ -732,8 +804,9 @@ var
   SingleName: UTF8String;
   SinglePath: IPath;
   RootPath: IPath;
-  RetryAfterMs: QWord;
   LogLabel: UTF8String;
+  QueueLength: Integer;
+  AlreadyQueued: Boolean;
 begin
   SingleName := Trim(Request.SingleSongDirName);
   if (SingleName = '') then
@@ -765,17 +838,14 @@ begin
       if SinglePath.Exists() and SinglePath.IsDirectory() and SinglePath.IsChildOf(RootPath, false) then
       begin
         LogLabel := UTF8String(SinglePath.ToUTF8(false));
-        if not TryScheduleReindex(SinglePath, LogLabel, RetryAfterMs) then
-        begin
-          Log.LogStatus('Companion', 'Queued trailing reindex for singleSongDir: ' + LogLabel);
-          ResponseJson := '{"ok":true,"queued":true,"retryAfterMs":' + IntToStr(RetryAfterMs) + '}';
-          ResponseCode := 202;
-          Exit;
-        end;
-
-        ExecuteReindexForPath(SinglePath);
-        ResponseJson := '{"ok":true}';
-        ResponseCode := 200;
+        EnqueueReindexRequest(SinglePath, LogLabel, QueueLength, AlreadyQueued);
+        if AlreadyQueued then
+          Log.LogStatus('Companion', 'Reindex already queued for singleSongDir: ' + LogLabel)
+        else
+          Log.LogStatus('Companion', 'Queued reindex for singleSongDir: ' + LogLabel);
+        ResponseJson := '{"ok":true,"queued":true,"alreadyQueued":' + BoolToJson(AlreadyQueued) +
+          ',"queueLength":' + IntToStr(QueueLength) + '}';
+        ResponseCode := 202;
         Exit;
       end;
     end;
@@ -984,18 +1054,19 @@ begin
   if (CompanionServerThread <> nil) then
     Exit;
 
-  System.EnterCriticalSection(ReindexThrottleLock);
+  System.EnterCriticalSection(ReindexQueueLock);
   try
-    LastReindexRunAtMs := 0;
-    PendingReindex := false;
-    PendingReindexSongPath := nil;
-    PendingReindexSongsDirName := '';
+    if (ReindexQueue = nil) then
+      ReindexQueue := TList.Create()
+    else
+      ClearReindexQueueUnsafe;
+    ActiveReindexSongPath := nil;
   finally
-    System.LeaveCriticalSection(ReindexThrottleLock);
+    System.LeaveCriticalSection(ReindexQueueLock);
   end;
 
-  if (ReindexThrottleThread = nil) then
-    ReindexThrottleThread := TCompanionReindexThrottleThread.Create(false);
+  if (ReindexQueueThread = nil) then
+    ReindexQueueThread := TCompanionReindexQueueThread.Create(false);
 
   CompanionServerThread := TCompanionServerThread.Create(Port);
   {$ELSE}
@@ -1011,37 +1082,44 @@ begin
     CompanionServerThread.StopServer;
     CompanionServerThread := nil;
   end;
-  if (ReindexThrottleThread <> nil) then
+  if (ReindexQueueThread <> nil) then
   begin
-    ReindexThrottleThread.Terminate;
-    ReindexThrottleThread.WaitFor;
-    FreeAndNil(ReindexThrottleThread);
+    ReindexQueueThread.Terminate;
+    ReindexQueueThread.WaitFor;
+    FreeAndNil(ReindexQueueThread);
   end;
 
-  System.EnterCriticalSection(ReindexThrottleLock);
+  System.EnterCriticalSection(ReindexQueueLock);
   try
-    LastReindexRunAtMs := 0;
-    PendingReindex := false;
-    PendingReindexSongPath := nil;
-    PendingReindexSongsDirName := '';
+    ClearReindexQueueUnsafe;
+    FreeAndNil(ReindexQueue);
+    ActiveReindexSongPath := nil;
   finally
-    System.LeaveCriticalSection(ReindexThrottleLock);
+    System.LeaveCriticalSection(ReindexQueueLock);
   end;
   {$ENDIF}
 end;
 
 initialization
-  System.InitCriticalSection(ReindexThrottleLock);
+  System.InitCriticalSection(ReindexQueueLock);
 
 finalization
   {$IFDEF FPC}
-  if (ReindexThrottleThread <> nil) then
+  if (ReindexQueueThread <> nil) then
   begin
-    ReindexThrottleThread.Terminate;
-    ReindexThrottleThread.WaitFor;
-    FreeAndNil(ReindexThrottleThread);
+    ReindexQueueThread.Terminate;
+    ReindexQueueThread.WaitFor;
+    FreeAndNil(ReindexQueueThread);
   end;
   {$ENDIF}
-  System.DoneCriticalSection(ReindexThrottleLock);
+  System.EnterCriticalSection(ReindexQueueLock);
+  try
+    ClearReindexQueueUnsafe;
+    FreeAndNil(ReindexQueue);
+    ActiveReindexSongPath := nil;
+  finally
+    System.LeaveCriticalSection(ReindexQueueLock);
+  end;
+  System.DoneCriticalSection(ReindexQueueLock);
 
 end.

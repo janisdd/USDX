@@ -157,7 +157,6 @@ type
       CompanionEnabled: integer;
       CompanionCommPort: integer;
       CompanionPlaylistName: string;
-      CompanionReindexThrottleWindowSec: integer;
 
       // Graphics
       MaxFramerate:   byte;
@@ -1494,7 +1493,6 @@ begin
   CompanionEnabled := IniFile.ReadInteger('Companion', 'CompanionEnabled', 1);
   CompanionCommPort := IniFile.ReadInteger('Companion', 'CompanionCommPort', 3001);
   CompanionPlaylistName := IniFile.ReadString('Companion', 'CompanionPlaylistName', 'CompanionPlaylist');
-  CompanionReindexThrottleWindowSec := IniFile.ReadInteger('Companion', 'CompanionReindexThrottleWindowSec', 5);
 
   // Read Users Info (Network)
   DataBase.ReadUsers;
@@ -1836,7 +1834,6 @@ begin
     IniFile.WriteInteger('Companion', 'CompanionEnabled', CompanionEnabled);
     IniFile.WriteInteger('Companion', 'CompanionCommPort', CompanionCommPort);
     IniFile.WriteString('Companion', 'CompanionPlaylistName', CompanionPlaylistName);
-    IniFile.WriteInteger('Companion', 'CompanionReindexThrottleWindowSec', CompanionReindexThrottleWindowSec);
 
     // MaxFramerate
     IniFile.WriteString('Graphics', 'MaxFramerate', IMaxFramerate[MaxFramerate]);
