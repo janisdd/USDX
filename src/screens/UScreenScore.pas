@@ -211,6 +211,9 @@ type
       procedure OnShow; override;
       procedure OnShowFinish; override;
       function Draw: boolean; override;
+      { Companion HTTP: leave score screen even if bar/rating animation has not finished
+        (ParseInput Escape only fades after FinishScreenDraw, which normally updates on Draw). }
+      procedure CompanionDismiss;
   end;
 
 const
@@ -474,6 +477,12 @@ begin
 
     end;
   end;
+end;
+
+procedure TScreenScore.CompanionDismiss;
+begin
+  FinishScreenDraw := true;
+  ParseInput(SDLK_ESCAPE, 0, true);
 end;
 
 function TScreenScore.ParseMouse(MouseButton: Integer; BtnDown: Boolean; X, Y: integer): boolean;
