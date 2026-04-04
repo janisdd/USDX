@@ -748,24 +748,21 @@ begin
     Exit;
   end;
 
-  SinglePath := Path(SingleName).GetAbsolutePath().RemovePathDelim();
-  if (not SinglePath.Exists()) then
+  if Path(SingleName).IsAbsolute() then
   begin
-    SetErrorResponse(ResponseJson, ResponseCode, 'Song directory not found: ' + SingleName, 404);
-    Exit;
-  end;
-  if (not SinglePath.IsDirectory()) then
-  begin
-    SetErrorResponse(ResponseJson, ResponseCode, 'singleSongDirName must be a directory', 400);
+    SetErrorResponse(ResponseJson, ResponseCode,
+      'singleSongDirName must be relative to a configured songs root, not an absolute path', 400);
     Exit;
   end;
 
+  { Resolve relative to each configured songs root (not the process working directory). }
   if (SongPaths <> nil) then
   begin
     for I := 0 to SongPaths.Count - 1 do
     begin
       RootPath := (SongPaths[I] as IPath).GetAbsolutePath().RemovePathDelim();
-      if SinglePath.IsChildOf(RootPath, false) then
+      SinglePath := RootPath.Append(SingleName).GetAbsolutePath().RemovePathDelim();
+      if SinglePath.Exists() and SinglePath.IsDirectory() and SinglePath.IsChildOf(RootPath, false) then
       begin
         LogLabel := UTF8String(SinglePath.ToUTF8(false));
         if not TryScheduleReindex(SinglePath, LogLabel, RetryAfterMs) then
@@ -785,7 +782,7 @@ begin
   end;
 
   SetErrorResponse(ResponseJson, ResponseCode,
-    'Song directory is not under a configured songs root: ' + SingleName, 404);
+    'Song directory not found under any configured songs root: ' + SingleName, 404);
 end;
 
 {$IFDEF FPC}

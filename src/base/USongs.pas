@@ -622,7 +622,7 @@ begin
   if (AddedOrChangedSongs <= 0) then
     Exit;
 
-  Log.LogStatus('Added ' + IntToStr(AddedOrChangedSongs) + ' songs after reindex', 'TSongs.MergeSongListSafe');
+  Log.LogStatus('Added or changed' + IntToStr(AddedOrChangedSongs) + ' songs after reindex', 'TSongs.MergeSongListSafe');
 
   if assigned(CatSongs) then
   begin
