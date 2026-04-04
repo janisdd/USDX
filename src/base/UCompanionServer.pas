@@ -752,16 +752,16 @@ procedure HandleReindexDirRequest(const Request: TCompanionReindexDirRequest; ou
   out ResponseCode: Integer);
 var
   I: Integer;
-  SongsDirName: UTF8String;
+  SongsRootDirName: UTF8String;
   SongPath: IPath;
   SongPathText: UTF8String;
   QueueLength: Integer;
   AlreadyQueued: Boolean;
 begin
-  SongsDirName := Trim(Request.SongsDirName);
-  if (SongsDirName = '') then
+  SongsRootDirName := Trim(Request.SongsRootDirName);
+  if (SongsRootDirName = '') then
   begin
-    SetErrorResponse(ResponseJson, ResponseCode, 'songsDirName must not be empty', 400);
+    SetErrorResponse(ResponseJson, ResponseCode, 'songsRootDirName must not be empty', 400);
     Exit;
   end;
 
@@ -778,14 +778,14 @@ begin
       SongPath := SongPaths[I] as IPath;
       SongPathText := UTF8String(SongPath.RemovePathDelim().ToUTF8(false));
 
-      if (Length(SongPathText) >= Length(SongsDirName)) and
-         (CompareText(Copy(SongPathText, Length(SongPathText) - Length(SongsDirName) + 1, Length(SongsDirName)), SongsDirName) = 0) then
+      if (Length(SongPathText) >= Length(SongsRootDirName)) and
+         (CompareText(Copy(SongPathText, Length(SongPathText) - Length(SongsRootDirName) + 1, Length(SongsRootDirName)), SongsRootDirName) = 0) then
       begin
-        EnqueueReindexRequest(SongPath, SongsDirName, QueueLength, AlreadyQueued);
+        EnqueueReindexRequest(SongPath, SongsRootDirName, QueueLength, AlreadyQueued);
         if AlreadyQueued then
-          Log.LogStatus('Companion', 'Reindex already queued for songsDirName: ' + SongsDirName)
+          Log.LogStatus('Companion', 'Reindex already queued for songsRootDirName: ' + SongsRootDirName)
         else
-          Log.LogStatus('Companion', 'Queued reindex for songsDirName: ' + SongsDirName);
+          Log.LogStatus('Companion', 'Queued reindex for songsRootDirName: ' + SongsRootDirName);
         ResponseJson := '{"ok":true,"queued":true,"alreadyQueued":' + BoolToJson(AlreadyQueued) +
           ',"queueLength":' + IntToStr(QueueLength) + '}';
         ResponseCode := 202;
@@ -794,7 +794,7 @@ begin
     end;
   end;
 
-  SetErrorResponse(ResponseJson, ResponseCode, 'Songs directory not found: ' + SongsDirName, 404);
+  SetErrorResponse(ResponseJson, ResponseCode, 'Songs directory not found: ' + SongsRootDirName, 404);
 end;
 
 procedure HandleReindexSingleSongDirRequest(const Request: TCompanionReindexSingleSongDirRequest;

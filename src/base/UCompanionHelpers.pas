@@ -18,7 +18,7 @@ type
     Artist: UTF8String;
   end;
   TCompanionReindexDirRequest = record
-    SongsDirName: UTF8String;
+    SongsRootDirName: UTF8String;
   end;
   TCompanionReindexSingleSongDirRequest = record
     SingleSongDirName: UTF8String;
@@ -98,7 +98,7 @@ var
   Obj: TJSONObject;
 begin
   Result := false;
-  Request.SongsDirName := '';
+  Request.SongsRootDirName := '';
 
   if (Trim(Body) = '') then
     Exit;
@@ -109,8 +109,8 @@ begin
       Exit;
     Obj := TJSONObject(Data);
 
-    Request.SongsDirName := Obj.Get('songsDirName', '');
-    Result := Trim(Request.SongsDirName) <> '';
+    Request.SongsRootDirName := Obj.Get('songsRootDirName', '');
+    Result := Trim(Request.SongsRootDirName) <> '';
   finally
     Data.Free;
   end;
