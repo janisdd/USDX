@@ -13,7 +13,7 @@ interface
 
 {$I switches.inc}
 
-procedure StartCompanionServer(Port: integer; const PlaylistName: UTF8String);
+procedure StartCompanionServer(Port: integer; const BindHost: UTF8String; const PlaylistName: UTF8String);
 procedure StopCompanionServer;
 
 implementation
@@ -42,6 +42,12 @@ uses
 
 {$IFDEF FPC}
 type
+  { TFPHttpServer does not republish Address from TFPCustomHttpServer (it stays protected). }
+  TCompanionHTTPServer = class(TFPHTTPServer)
+  published
+    property Address;
+  end;
+
   TCompanionQueuedReindex = class
   public
     SongPath: IPath;
@@ -56,13 +62,14 @@ type
 
   TCompanionServerThread = class(TThread)
   private
-    FHttpServer: TFPHTTPServer;
+    FHttpServer: TCompanionHTTPServer;
     FRouter: THTTPRouter;
     FPort: integer;
+    FBindHost: UTF8String;
     procedure HandleRequest(Sender: TObject; var ARequest: TFPHTTPConnectionRequest;
       var AResponse: TFPHTTPConnectionResponse);
   public
-    constructor Create(APort: integer);
+    constructor Create(APort: integer; const ABindHost: UTF8String);
     procedure StopServer;
   protected
     procedure Execute; override;
@@ -273,11 +280,12 @@ begin
   FRouter.RouteRequest(ARequest, AResponse);
 end;
 
-constructor TCompanionServerThread.Create(APort: integer);
+constructor TCompanionServerThread.Create(APort: integer; const ABindHost: UTF8String);
 begin
   inherited Create(false);
   FreeOnTerminate := true;
   FPort := APort;
+  FBindHost := ABindHost;
 end;
 
 procedure TCompanionServerThread.Execute;
@@ -285,14 +293,15 @@ begin
   FRouter := THTTPRouter.Create(nil);
   try
     RegisterCompanionRoutes(FRouter);
-    FHttpServer := TFPHTTPServer.Create(nil);
+    FHttpServer := TCompanionHTTPServer.Create(nil);
     try
+      FHttpServer.Address := string(FBindHost);
       FHttpServer.Port := Word(FPort);
       FHttpServer.Threaded := true;
       FHttpServer.OnRequest := HandleRequest;
       FHttpServer.Active := true;
 
-      Log.LogStatus('Companion', 'HTTP server listening on port ' + IntToStr(FPort));
+      Log.LogStatus('Companion', 'HTTP server listening on ' + string(FBindHost) + ':' + IntToStr(FPort));
 
       while not Terminated do
         Sleep(50);
@@ -1043,7 +1052,7 @@ end;
 
 {$ENDIF}
 
-procedure StartCompanionServer(Port: integer; const PlaylistName: UTF8String);
+procedure StartCompanionServer(Port: integer; const BindHost: UTF8String; const PlaylistName: UTF8String);
 begin
   EnsureCompanionPlaylist(PlaylistName);
 
@@ -1068,7 +1077,7 @@ begin
   if (ReindexQueueThread = nil) then
     ReindexQueueThread := TCompanionReindexQueueThread.Create(false);
 
-  CompanionServerThread := TCompanionServerThread.Create(Port);
+  CompanionServerThread := TCompanionServerThread.Create(Port, BindHost);
   {$ELSE}
   Log.LogStatus('Companion', 'HTTP server not available in Delphi build');
   {$ENDIF}

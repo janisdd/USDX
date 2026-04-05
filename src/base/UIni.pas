@@ -158,6 +158,7 @@ type
       // Companion
       CompanionEnabled: integer;
       CompanionCommPort: integer;
+      CompanionCommHost: string;
       CompanionPlaylistName: string;
 
       // Graphics
@@ -1534,6 +1535,9 @@ begin
 
   CompanionEnabled := IniFile.ReadInteger('Companion', 'CompanionEnabled', 1);
   CompanionCommPort := IniFile.ReadInteger('Companion', 'CompanionCommPort', 3001);
+  CompanionCommHost := IniFile.ReadString('Companion', 'CompanionCommHost', 'localhost');
+  if Trim(CompanionCommHost) = '' then
+    CompanionCommHost := 'localhost';
   CompanionPlaylistName := IniFile.ReadString('Companion', 'CompanionPlaylistName', 'CompanionPlaylist');
 
   // Read Users Info (Network)
@@ -1875,6 +1879,7 @@ begin
 
     IniFile.WriteInteger('Companion', 'CompanionEnabled', CompanionEnabled);
     IniFile.WriteInteger('Companion', 'CompanionCommPort', CompanionCommPort);
+    IniFile.WriteString('Companion', 'CompanionCommHost', CompanionCommHost);
     IniFile.WriteString('Companion', 'CompanionPlaylistName', CompanionPlaylistName);
 
     // MaxFramerate
