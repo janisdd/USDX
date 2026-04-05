@@ -313,6 +313,10 @@ type
       procedure StopMusicPreview();
       procedure StopVideoPreview();
 
+      { Companion HTTP: release or resume preview only when the song matches title/artist. }
+      function CompanionStopPreviewIfMatches(const Title, Artist: UTF8String): Boolean;
+      function CompanionStartPreviewIfMatches(const Title, Artist: UTF8String): Boolean;
+
       procedure ParseInputNextHorizontal(PressedKey: cardinal; CharCode: UCS4Char; PressedDown: boolean);
       procedure ParseInputPrevHorizontal(PressedKey: cardinal; CharCode: UCS4Char; PressedDown: boolean);
 
@@ -3722,6 +3726,55 @@ begin
     fCurrentVideo.Stop();
     fCurrentVideo := nil;
   end;
+end;
+
+function TScreenSong.CompanionStopPreviewIfMatches(const Title, Artist: UTF8String): Boolean;
+var
+  Song: TSong;
+  Idx: Integer;
+begin
+  Result := false;
+  if (PreviewOpened < Low(CatSongs.Song)) or (PreviewOpened > High(CatSongs.Song)) then
+    Exit;
+  Song := CatSongs.Song[PreviewOpened];
+  if not Assigned(Song) then
+    Exit;
+  if (Song.Title <> Title) or (Song.Artist <> Artist) then
+    Exit;
+
+  Idx := PreviewOpened;
+  StopMusicPreview;
+  StopVideoPreview;
+  AudioPlayback.Close;
+  { If the preview was for the current selection, keep PreviewOpened = Interaction so
+    Draw does not immediately reopen the audio file (e.g. Windows replace-in-place). }
+  if Idx = Interaction then
+    PreviewOpened := Interaction
+  else
+    PreviewOpened := -1;
+  Result := true;
+end;
+
+function TScreenSong.CompanionStartPreviewIfMatches(const Title, Artist: UTF8String): Boolean;
+var
+  Song: TSong;
+begin
+  Result := false;
+  if SongIndex <> -1 then
+    Exit;
+  if (Interaction < Low(CatSongs.Song)) or (Interaction > High(CatSongs.Song)) then
+    Exit;
+  Song := CatSongs.Song[Interaction];
+  if not Assigned(Song) then
+    Exit;
+  if (Song.Title <> Title) or (Song.Artist <> Artist) then
+    Exit;
+  if Song.main then
+    Exit;
+
+  StartMusicPreview;
+  StartVideoPreview;
+  Result := true;
 end;
 
 // Changes previewed song

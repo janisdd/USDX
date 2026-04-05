@@ -30,13 +30,12 @@ uses
   USongs,
   UDisplay,
   UGraphic,
+  UScreenSong,
   sdl2
   {$IFDEF FPC}
   , fphttpserver
   , httpdefs
   , httproute
-  , fpjson
-  , jsonparser
   {$ENDIF}
   ;
 
@@ -84,7 +83,6 @@ var
 
 function FindPlaylistIndexByName(const PlaylistName: UTF8String): Integer; forward;
 procedure EnsureCompanionPlaylist(const PlaylistName: UTF8String); forward;
-function TryParseSongRequest(const Body: string; out Title, Artist: UTF8String): boolean; forward;
 procedure HandleAddSongsRequest(const Songs: TCompanionSongArray; out ResponseJson: UTF8String;
   out ResponseCode: Integer); forward;
 procedure HandleSelectSongRequest(const Title, Artist: UTF8String; out ResponseJson: UTF8String;
@@ -93,6 +91,10 @@ procedure HandleStartSelectedSongRequest(out ResponseJson: UTF8String; out Respo
 procedure HandleCloseScoreScreenRequest(out ResponseJson: UTF8String; out ResponseCode: Integer); forward;
 procedure HandleTogglePauseCurrentSongRequest(out ResponseJson: UTF8String; out ResponseCode: Integer); forward;
 procedure HandleCancelCurrentSongRequest(out ResponseJson: UTF8String; out ResponseCode: Integer); forward;
+procedure HandleStopSongPreviewRequest(const Title, Artist: UTF8String; out ResponseJson: UTF8String;
+  out ResponseCode: Integer); forward;
+procedure HandleStartSongPreviewRequest(const Title, Artist: UTF8String; out ResponseJson: UTF8String;
+  out ResponseCode: Integer); forward;
 procedure HandleSetCompanionPlaylistRequest(const Songs: TCompanionSongArray; out ResponseJson: UTF8String;
   out ResponseCode: Integer); forward;
 procedure HandleReindexDirRequest(const Request: TCompanionReindexDirRequest; out ResponseJson: UTF8String;
@@ -119,6 +121,8 @@ procedure CompanionRouteStartSelectedSong(ARequest: TRequest; AResponse: TRespon
 procedure CompanionRouteCloseScoreScreen(ARequest: TRequest; AResponse: TResponse); forward;
 procedure CompanionRouteTogglePauseCurrentSong(ARequest: TRequest; AResponse: TResponse); forward;
 procedure CompanionRouteCancelCurrentSong(ARequest: TRequest; AResponse: TResponse); forward;
+procedure CompanionRouteStopSongPreview(ARequest: TRequest; AResponse: TResponse); forward;
+procedure CompanionRouteStartSongPreview(ARequest: TRequest; AResponse: TResponse); forward;
 procedure CompanionRouteNotFound(ARequest: TRequest; AResponse: TResponse); forward;
 procedure RegisterCompanionRoutes(ARouter: THTTPRouter); forward;
 
@@ -127,6 +131,12 @@ type
   PSelectSongData = ^TSelectSongData;
   TSelectSongData = record
     SongIndex: Integer;
+  end;
+
+  PPreviewSongData = ^TPreviewSongData;
+  TPreviewSongData = record
+    Title: UTF8String;
+    Artist: UTF8String;
   end;
 
 const
@@ -180,6 +190,34 @@ begin
   if (ScreenSong = nil) then
     Exit;
   ScreenSong.ParseInput(SDLK_RETURN, 0, true);
+end;
+
+procedure StopSongPreviewIfMatchesInUi(Data: Pointer);
+var
+  P: PPreviewSongData;
+begin
+  P := PPreviewSongData(Data);
+  try
+    if (ScreenSong = nil) then
+      Exit;
+    ScreenSong.CompanionStopPreviewIfMatches(P^.Title, P^.Artist);
+  finally
+    Dispose(P);
+  end;
+end;
+
+procedure StartSongPreviewIfMatchesInUi(Data: Pointer);
+var
+  P: PPreviewSongData;
+begin
+  P := PPreviewSongData(Data);
+  try
+    if (ScreenSong = nil) then
+      Exit;
+    ScreenSong.CompanionStartPreviewIfMatches(P^.Title, P^.Artist);
+  finally
+    Dispose(P);
+  end;
 end;
 
 procedure CloseScoreScreenInUi(Data: Pointer);
@@ -361,33 +399,6 @@ begin
   begin
     PlayListMan.AddPlaylist(PlaylistName);
     Log.LogStatus('Companion', 'Created playlist: ' + PlaylistName);
-  end;
-end;
-
-function TryParseSongRequest(const Body: string; out Title, Artist: UTF8String): boolean;
-var
-  Data: TJSONData;
-  Obj: TJSONObject;
-begin
-  Result := false;
-  Title := '';
-  Artist := '';
-
-  if (Trim(Body) = '') then
-    Exit;
-
-  Data := GetJSON(Body);
-  try
-    if (Data.JSONType <> jtObject) then
-      Exit;
-    Obj := TJSONObject(Data);
-
-    Title := Obj.Get('title', '');
-    Artist := Obj.Get('artist', '');
-
-    Result := (Trim(Title) <> '') and (Trim(Artist) <> '');
-  finally
-    Data.Free;
   end;
 end;
 
@@ -693,6 +704,60 @@ begin
 
   ExecInMainThread(@CancelCurrentSongInUi, nil);
   Log.LogStatus('Companion', 'Cancel current song (Escape path)');
+  ResponseJson := '{"ok":true}';
+  ResponseCode := 200;
+end;
+
+procedure HandleStopSongPreviewRequest(const Title, Artist: UTF8String; out ResponseJson: UTF8String;
+  out ResponseCode: Integer);
+var
+  P: PPreviewSongData;
+begin
+  if (Display = nil) or (Display.CurrentScreen <> @ScreenSong) then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'Not on song select screen', 409);
+    Exit;
+  end;
+
+  if (not Assigned(ScreenSong)) or (not Assigned(CatSongs)) then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'Song screen not ready', 503);
+    Exit;
+  end;
+
+  New(P);
+  P^.Title := Title;
+  P^.Artist := Artist;
+  ExecInMainThread(@StopSongPreviewIfMatchesInUi, P);
+
+  Log.LogStatus('Companion', 'Stop song preview if matches: ' + Artist + ' - ' + Title);
+  ResponseJson := '{"ok":true}';
+  ResponseCode := 200;
+end;
+
+procedure HandleStartSongPreviewRequest(const Title, Artist: UTF8String; out ResponseJson: UTF8String;
+  out ResponseCode: Integer);
+var
+  P: PPreviewSongData;
+begin
+  if (Display = nil) or (Display.CurrentScreen <> @ScreenSong) then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'Not on song select screen', 409);
+    Exit;
+  end;
+
+  if (not Assigned(ScreenSong)) or (not Assigned(CatSongs)) then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'Song screen not ready', 503);
+    Exit;
+  end;
+
+  New(P);
+  P^.Title := Title;
+  P^.Artist := Artist;
+  ExecInMainThread(@StartSongPreviewIfMatchesInUi, P);
+
+  Log.LogStatus('Companion', 'Start song preview if matches: ' + Artist + ' - ' + Title);
   ResponseJson := '{"ok":true}';
   ResponseCode := 200;
 end;
@@ -1024,6 +1089,54 @@ begin
   AResponse.Content := ResponseJson;
 end;
 
+procedure CompanionRouteStopSongPreview(ARequest: TRequest; AResponse: TResponse);
+var
+  Body: string;
+  Title: UTF8String;
+  Artist: UTF8String;
+  ResponseJson: UTF8String;
+  ResponseCode: Integer;
+begin
+  if CompareText(ARequest.Method, 'POST') <> 0 then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'Method not allowed', 405);
+    AResponse.Code := ResponseCode;
+    AResponse.Content := ResponseJson;
+    Exit;
+  end;
+  Body := ARequest.Content;
+  if not TryParseSongRequest(Body, Title, Artist) then
+    SetErrorResponse(ResponseJson, ResponseCode, 'Invalid JSON', 400)
+  else
+    HandleStopSongPreviewRequest(Title, Artist, ResponseJson, ResponseCode);
+  AResponse.Code := ResponseCode;
+  AResponse.Content := ResponseJson;
+end;
+
+procedure CompanionRouteStartSongPreview(ARequest: TRequest; AResponse: TResponse);
+var
+  Body: string;
+  Title: UTF8String;
+  Artist: UTF8String;
+  ResponseJson: UTF8String;
+  ResponseCode: Integer;
+begin
+  if CompareText(ARequest.Method, 'POST') <> 0 then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'Method not allowed', 405);
+    AResponse.Code := ResponseCode;
+    AResponse.Content := ResponseJson;
+    Exit;
+  end;
+  Body := ARequest.Content;
+  if not TryParseSongRequest(Body, Title, Artist) then
+    SetErrorResponse(ResponseJson, ResponseCode, 'Invalid JSON', 400)
+  else
+    HandleStartSongPreviewRequest(Title, Artist, ResponseJson, ResponseCode);
+  AResponse.Code := ResponseCode;
+  AResponse.Content := ResponseJson;
+end;
+
 procedure CompanionRouteNotFound(ARequest: TRequest; AResponse: TResponse);
 var
   ResponseJson: UTF8String;
@@ -1047,6 +1160,8 @@ begin
   ARouter.RegisterRoute('/closeScoreScreen', @CompanionRouteCloseScoreScreen);
   ARouter.RegisterRoute('/togglePauseCurrentSong', @CompanionRouteTogglePauseCurrentSong);
   ARouter.RegisterRoute('/cancelCurrentSong', @CompanionRouteCancelCurrentSong);
+  ARouter.RegisterRoute('/stopSongPreview', @CompanionRouteStopSongPreview);
+  ARouter.RegisterRoute('/startSongPreview', @CompanionRouteStartSongPreview);
   ARouter.RegisterRoute('*', @CompanionRouteNotFound, True);
 end;
 

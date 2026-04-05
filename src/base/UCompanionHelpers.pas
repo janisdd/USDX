@@ -27,6 +27,7 @@ type
 
 {$IFDEF FPC}
 function TryParseSongsRequest(const Body: string; out Songs: TCompanionSongArray): boolean;
+function TryParseSongRequest(const Body: string; out Title, Artist: UTF8String): boolean;
 function TryParseReindexDirRequest(const Body: string; out Request: TCompanionReindexDirRequest): boolean;
 function TryParseReindexSingleSongDirRequest(const Body: string; out Request: TCompanionReindexSingleSongDirRequest): boolean;
 function GenerateCurrentSongJson: UTF8String;
@@ -87,6 +88,33 @@ begin
     end;
 
     Result := true;
+  finally
+    Data.Free;
+  end;
+end;
+
+function TryParseSongRequest(const Body: string; out Title, Artist: UTF8String): boolean;
+var
+  Data: TJSONData;
+  Obj: TJSONObject;
+begin
+  Result := false;
+  Title := '';
+  Artist := '';
+
+  if (Trim(Body) = '') then
+    Exit;
+
+  Data := GetJSON(Body);
+  try
+    if (Data.JSONType <> jtObject) then
+      Exit;
+    Obj := TJSONObject(Data);
+
+    Title := Obj.Get('title', '');
+    Artist := Obj.Get('artist', '');
+
+    Result := (Trim(Title) <> '') and (Trim(Artist) <> '');
   finally
     Data.Free;
   end;
