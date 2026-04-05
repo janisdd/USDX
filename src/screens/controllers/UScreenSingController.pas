@@ -75,11 +75,13 @@ type
   TScreenSingController = class(TMenu)
   private
     StartNote, EndNote:     TPos;
+    FIntroAutoSkipDone:     boolean;
 
     procedure LoadNextSong();
     procedure SongError();
     procedure ResetLinesAndLyrics();
     procedure ClearLyricEngines();
+    function GetFirstNoteAudioTime: real;
   public
     CheckPlayerConfigOnNextSong: boolean;
     eSongLoaded: THookableEvent; //< event is called after lyrics of a song are loaded on OnShow
@@ -164,8 +166,10 @@ type
     procedure AllNotesVisible(visible: boolean);
     procedure ApplySettings; //< applies changes of settings record
     procedure EndSong;
+    procedure TryAutoSkipToFirstNoteIfNeeded;
 
     constructor Create; override;
+    destructor Destroy; override;
     procedure OnShow; override;
     procedure OnShowFinish; override;
     procedure OnHide; override;
@@ -217,6 +221,30 @@ uses
 const
   MAX_MESSAGE = 3;
 
+function TScreenSingController.GetFirstNoteAudioTime: real;
+begin
+  if not CurrentSong.isDuet then
+    Result := GetTimeFromBeat(Lyrics.GetUpperLine().StartNote)
+  else
+    Result := GetTimeFromBeat(min(LyricsDuetP1.GetUpperLine().StartNote, LyricsDuetP2.GetUpperLine().StartNote));
+end;
+
+procedure TScreenSingController.TryAutoSkipToFirstNoteIfNeeded;
+var
+  FirstT: real;
+  Offs:   integer;
+begin
+  if FIntroAutoSkipDone or (not Ini.AutoSkipToFirstNote) or Paused or Settings.Finish then
+    Exit;
+  Offs := Ini.SkipToFirstNoteNegativeOffset;
+  FirstT := GetFirstNoteAudioTime;
+  if FirstT - AudioPlayback.Position > Offs then
+  begin
+    AudioPlayback.SetPosition(FirstT - Offs);
+    FIntroAutoSkipDone := true;
+  end;
+end;
+
 // method for input parsing. if false is returned, getnextwindow
 // should be checked to know the next window to load;
 
@@ -226,6 +254,7 @@ var
   SDL_ModState: word;
   i1:           integer;
   Color:        TRGB;
+  ResumeAfterHelp: boolean;
   NewPosition:  real;
 begin
   Result := true;
@@ -254,6 +283,7 @@ begin
       SDLK_R:
       begin
         if ScreenSong.Mode = smMedley then Exit;
+        FIntroAutoSkipDone := false;
         for i1 := 0 to High(Player) do
         with Player[i1] do
         begin
@@ -414,14 +444,8 @@ begin
         end
         else
         begin
-          if (not CurrentSong.isDuet and (GetTimeFromBeat(Lyrics.GetUpperLine().StartNote) - AudioPlayback.Position > 6)) then
-          begin
-            AudioPlayback.SetPosition(GetTimeFromBeat(Lyrics.GetUpperLine().StartNote) - 5);
-          end
-          else if (CurrentSong.isDuet and (GetTimeFromBeat(min(LyricsDuetP1.GetUpperLine().StartNote, LyricsDuetP2.GetUpperLine().StartNote)) - AudioPlayback.Position > 6)) then
-          begin
-            AudioPlayback.SetPosition(GetTimeFromBeat(min(LyricsDuetP1.GetUpperLine().StartNote, LyricsDuetP2.GetUpperLine().StartNote)) - 5);
-          end;
+          if GetFirstNoteAudioTime - AudioPlayback.Position > Ini.SkipToFirstNoteNegativeOffset + 1 then
+            AudioPlayback.SetPosition(GetFirstNoteAudioTime - Ini.SkipToFirstNoteNegativeOffset);
           Exit;
         end;
       end;
@@ -627,9 +651,10 @@ begin
         end
         else // show help popup
         begin
-          if not paused then
+          ResumeAfterHelp := not Paused;
+          if ResumeAfterHelp then
             Pause;
-          ScreenPopupHelp.ShowPopup();
+          ScreenPopupHelp.ShowPopup(ResumeAfterHelp);
         end;
       end;
     end;
@@ -680,6 +705,19 @@ begin
   ClearSettings;
 end;
 
+destructor TScreenSingController.Destroy;
+begin
+  FreeAndNil(screenSingViewRef);
+  Lyrics.Free;
+  LyricsDuetP1.Free;
+  LyricsDuetP2.Free;
+  fLyricsSync.Free;
+  fMusicSync.Free;
+  eSongLoaded.Free;
+  Scores.Free;
+  inherited;
+end;
+
 procedure TScreenSingController.OnShow;
 var
   BadPlayer: integer;
@@ -701,6 +739,7 @@ begin
   SungPaused := false;
 
   ClearSettings;
+  FIntroAutoSkipDone := false;
   Party.CallBeforeSing;
 
   // prepare players
@@ -921,7 +960,7 @@ begin
 
   // Send Score
   Act_MD5Song := CurrentSong.MD5;
-  Act_Level := Ini.PlayerLevel[0];
+  Act_Level := Player[0].Level;
 
   // start timer
   CountSkipTimeSet;
@@ -1007,6 +1046,8 @@ var
   AudioEnd:   real;
 
 begin
+  FIntroAutoSkipDone := false;
+
   // background texture (garbage disposal)
   if (Tex_Background.TexNum > 0) then
   begin
@@ -1092,7 +1133,7 @@ begin
       Text[screenSingViewRef.SongNameText].Text := CurrentSong.Artist + ' - ' + CurrentSong.Title;
 
     //medley start and end timestamps
-    StartNote := FindNote(CurrentSong.Medley.StartBeat - round(CurrentSong.BPM[0].BPM*CurrentSong.Medley.FadeIn_time/60));
+    StartNote := FindNote(CurrentSong.Medley.StartBeat - round(CurrentSong.BPM*CurrentSong.Medley.FadeIn_time/60));
     MedleyStart := GetTimeFromBeat(CurrentSong.Tracks[0].Lines[StartNote.line].Notes[0].StartBeat);
 
     //check Medley-Start
@@ -1293,9 +1334,9 @@ end;
 
 procedure TScreenSingController.ClearLyricEngines();
 begin
-    Lyrics.Clear(CurrentSong.BPM[0].BPM, CurrentSong.Resolution);
-    LyricsDuetP1.Clear(CurrentSong.BPM[0].BPM, CurrentSong.Resolution);
-    LyricsDuetP2.Clear(CurrentSong.BPM[0].BPM, CurrentSong.Resolution);
+  Lyrics.Clear(CurrentSong.BPM);
+  LyricsDuetP1.Clear(CurrentSong.BPM);
+  LyricsDuetP2.Clear(CurrentSong.BPM);
 end;
 
 procedure TScreenSingController.ClearSettings;
@@ -1339,11 +1380,7 @@ begin
   fCurrentVideo := nil;
 
   // background texture
-  if Tex_Background.TexNum > 0 then
-  begin
-    glDeleteTextures(1, PGLuint(@Tex_Background.TexNum));
-    Tex_Background.TexNum := 0;
-  end;
+  FreeTexture(Tex_Background);
   if fShowWebcam then
         begin
           Webcam.Release;
@@ -1702,7 +1739,6 @@ var
   LineBonus: real;
   MaxSongScore: integer; // max. points for the song (without line bonus)
   MaxLineScore: real;    // max. points for the current line
-  Index: integer;
 const
   // TODO: move this to a better place
   MAX_LINE_RATING = 8;        // max. rating for singing performance
@@ -1714,18 +1750,13 @@ begin
     Exit;
 
   // set max song score
-  if Ini.LineBonus = 0 then
-    MaxSongScore := MAX_SONG_SCORE
-  else
-    MaxSongScore := MAX_SONG_SCORE - MAX_SONG_LINE_BONUS;
+  MaxSongScore := MAX_SONG_SCORE - MAX_SONG_LINE_BONUS;
 
   // Note: ScoreValue is the sum of all note values of the song
   MaxLineScore := MaxSongScore * (Line.ScoreValue / CurrentSong.Tracks[Track].ScoreValue);
 
   for PlayerIndex := 0 to High(Player) do
   begin
-    //PlayerIndex := Index;
-
     if (not CurrentSong.isDuet) or (PlayerIndex mod 2 = Track) or (PlayersPlay = 1)then
     begin
       CurrentPlayer := @Player[PlayerIndex];
@@ -1751,28 +1782,22 @@ begin
       else if LinePerfection > 1 then
         LinePerfection := 1;
 
-      // add line-bonus if enabled
-      if Ini.LineBonus > 0 then
-      begin
-        // line-bonus points (same for each line, no matter how long the line is)
-        LineBonus := MAX_SONG_LINE_BONUS / (Length(CurrentSong.Tracks[Track].Lines) -
-          NumEmptySentences[Track]);
-        // apply line-bonus
-        CurrentPlayer.ScoreLine :=
-          CurrentPlayer.ScoreLine + LineBonus * LinePerfection;
-        CurrentPlayer.ScoreLineInt := Floor(Round(CurrentPlayer.ScoreLine) / 10) * 10;
-        // update total score
-        CurrentPlayer.ScoreTotalInt :=
-          CurrentPlayer.ScoreInt +
-          CurrentPlayer.ScoreGoldenInt
-          + CurrentPlayer.ScoreLineInt;
+      // line-bonus points (same for each line, no matter how long the line is)
+      LineBonus := MAX_SONG_LINE_BONUS / (Length(CurrentSong.Tracks[Track].Lines) -
+        NumEmptySentences[Track]);
+      // apply line-bonus
+      CurrentPlayer.ScoreLine :=
+        CurrentPlayer.ScoreLine + LineBonus * LinePerfection;
+      CurrentPlayer.ScoreLineInt := Floor(Round(CurrentPlayer.ScoreLine) / 10) * 10;
+      // update total score
+      CurrentPlayer.ScoreTotalInt :=
+        CurrentPlayer.ScoreInt +
+        CurrentPlayer.ScoreGoldenInt
+        + CurrentPlayer.ScoreLineInt;
 
-        // spawn rating pop-up
-        Rating := Round(LinePerfection * MAX_LINE_RATING);
-        Scores.SpawnPopUp(PlayerIndex, Rating, CurrentPlayer.ScoreTotalInt);
-      end
-      else
-        Scores.RaiseScore(PlayerIndex, CurrentPlayer.ScoreTotalInt);
+      // spawn rating pop-up
+      Rating := Round(LinePerfection * MAX_LINE_RATING);
+      Scores.SpawnPopUp(PlayerIndex, Rating, CurrentPlayer.ScoreTotalInt);
 
       // PerfectLineTwinkle (effect), part 1
       if Ini.EffectSing = 1 then

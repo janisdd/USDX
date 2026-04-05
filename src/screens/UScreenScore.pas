@@ -205,6 +205,7 @@ type
       procedure SwapToScreen(Screen: integer);
     public
       constructor Create; override;
+      destructor Destroy; override;
       function ParseInput(PressedKey: cardinal; CharCode: UCS4Char; PressedDown: boolean): boolean; override;
       function ParseMouse(MouseButton: Integer; BtnDown: Boolean; X, Y: integer): boolean; override;
       procedure OnShow; override;
@@ -1012,6 +1013,22 @@ begin
 
 end;
 
+destructor TScreenScore.Destroy;
+var
+  I: integer;
+begin
+  for I := 1 to UIni.IMaxPlayerCount do
+  begin
+    FreeTexture(Tex_Score_NoteBarLevel_Dark[I]);
+    FreeTexture(Tex_Score_NoteBarRound_Dark[I]);
+    FreeTexture(Tex_Score_NoteBarLevel_Light[I]);
+    FreeTexture(Tex_Score_NoteBarRound_Light[I]);
+    FreeTexture(Tex_Score_NoteBarLevel_Lightest[I]);
+    FreeTexture(Tex_Score_NoteBarRound_Lightest[I]);
+  end;
+  inherited;
+end;
+
 //TODO: adapt for players 7 to 12
 procedure TScreenScore.MapPlayersToPosition;
   var
@@ -1428,8 +1445,7 @@ begin
   ThemeIndex := PlayerPositionMap[PlayerNumber-1].Position;
   if (ThemeIndex > 0) and ((ScreenAct = PlayerPositionMap[PlayerNumber-1].Screen) or (PlayerPositionMap[PlayerNumber-1].BothScreens)) then
   begin
-    // todo: take the name from player[PlayerNumber].Name instead of the ini when this is done (mog)
-    Text[TextName[ThemeIndex]].Text := Ini.Name[PlayerNumber-1];
+    Text[TextName[ThemeIndex]].Text := Player[PlayerNumber-1].Name;
     // end todo
 
     //golden
@@ -1798,6 +1814,7 @@ procedure TScreenSCore.StartPreview;
 var
   select:   integer;
   changed:  boolean;
+  PreviewVolume: single;
 begin
   //When Music Preview is activated -> then change music
   if (Ini.PreviewVolume <> 0) then
@@ -1836,17 +1853,18 @@ begin
           AudioPlayback.Position := (AudioPlayback.Length / 4);
 
         // set preview volume
+        PreviewVolume := EnsureRange(Ini.PreviewVolume, 0, 100) / 100;
         if (Ini.PreviewFading = 0) then
         begin
           // music fade disabled: start with full volume
-          AudioPlayback.SetVolume(IPreviewVolumeVals[Ini.PreviewVolume]);
+          AudioPlayback.SetVolume(PreviewVolume);
           AudioPlayback.Play()
         end
         else
         begin
           // music fade enabled: start muted and fade-in
           AudioPlayback.SetVolume(0);
-          AudioPlayback.FadeIn(Ini.PreviewFading, IPreviewVolumeVals[Ini.PreviewVolume]);
+          AudioPlayback.FadeIn(Ini.PreviewFading, PreviewVolume);
         end;
       end;
     end;

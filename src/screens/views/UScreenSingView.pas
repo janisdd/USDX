@@ -193,6 +193,7 @@ type
 
 
     constructor Create;
+    destructor Destroy; override;
 
     procedure DrawMedleyCountdown();
     function Draw: boolean;
@@ -547,7 +548,7 @@ begin
     end
     else
     begin
-      ScreenSing.PlayerNames[I] := Ini.Name[I-1];
+      ScreenSing.PlayerNames[I] := Player[I-1].Name;
     end;
     ScreenSing.PlayerDuetNames[I] := ScreenSing.PlayerNames[I];
   end;
@@ -710,6 +711,41 @@ begin
   assignAvatarStatic(Theme.Sing.Duet3PP1, StaticDuetP1ThreePAvatar[1], AvatarPlayerTextures[4]);
   assignAvatarStatic(Theme.Sing.Duet3PP2, StaticDuetP2MAvatar[1]     , AvatarPlayerTextures[5]);
   assignAvatarStatic(Theme.Sing.Duet3PP3, StaticDuetP3RAvatar[1]     , AvatarPlayerTextures[6]);
+end;
+
+destructor TScreenSingView.Destroy;
+var
+  I: integer;
+begin
+  for I := 1 to UIni.IMaxPlayerCount do
+  begin
+    FreeTexture(Tex_Left[I]);
+    FreeTexture(Tex_Mid[I]);
+    FreeTexture(Tex_Right[I]);
+    FreeTexture(Tex_plain_Left[I]);
+    FreeTexture(Tex_plain_Mid[I]);
+    FreeTexture(Tex_plain_Right[I]);
+    FreeTexture(Tex_BG_Left[I]);
+    FreeTexture(Tex_BG_Mid[I]);
+    FreeTexture(Tex_BG_Right[I]);
+    FreeTexture(Tex_Left_Rap[I]);
+    FreeTexture(Tex_Mid_Rap[I]);
+    FreeTexture(Tex_Right_Rap[I]);
+    FreeTexture(Tex_plain_Left_Rap[I]);
+    FreeTexture(Tex_plain_Mid_Rap[I]);
+    FreeTexture(Tex_plain_Right_Rap[I]);
+    FreeTexture(Tex_BG_Left_Rap[I]);
+    FreeTexture(Tex_BG_Mid_Rap[I]);
+    FreeTexture(Tex_BG_Right_Rap[I]);
+    FreeTexture(Tex_ScoreBG[I - 1]);
+  end;
+  FreeTexture(Tex_Left_Inv);
+  FreeTexture(Tex_Mid_Inv);
+  FreeTexture(Tex_Right_Inv);
+  FreeTexture(Tex_Left_Rap_Inv);
+  FreeTexture(Tex_Mid_Rap_Inv);
+  FreeTexture(Tex_Right_Rap_Inv);
+  inherited;
 end;
 
 function TScreenSingView.Draw: boolean;
@@ -970,6 +1006,7 @@ begin
       // analyze song if not paused
       if (not ScreenSing.Paused) then
       begin
+        ScreenSing.TryAutoSkipToFirstNoteIfNeeded;
         Sing(ScreenSing);
 
         //Update Medley Stats
@@ -1259,16 +1296,16 @@ begin
   //calculate total singing beats of song
   if ScreenSong.Mode = smMedley then
   begin
-    SongStart := ScreenSing.MedleyStart * CurrentSong.BPM[0].BPM / 60;
-    SongEnd := ScreenSing.MedleyEnd * CurrentSong.BPM[0].BPM / 60;
+    SongStart := ScreenSing.MedleyStart * CurrentSong.BPM / 60;
+    SongEnd := ScreenSing.MedleyEnd * CurrentSong.BPM / 60;
   end
   else
   begin
-    SongStart := CurrentSong.BPM[0].BPM*CurrentSong.Start/60;
-    SongEnd := CurrentSong.BPM[0].BPM*TotalTime/60;
+    SongStart := CurrentSong.BPM*CurrentSong.Start/60;
+    SongEnd := CurrentSong.BPM*TotalTime/60;
   end;
   SongDuration := SongEnd - SongStart;
-  gapInBeats := CurrentSong.BPM[0].BPM*CurrentSong.GAP/1000/60;
+  gapInBeats := CurrentSong.BPM*CurrentSong.GAP/1000/60;
   // draw sentence boxes
   for CurrentTrack := 0 to High(CurrentSong.Tracks) do //for P1 of duet or solo lyrics, P2 of duet,..
   begin

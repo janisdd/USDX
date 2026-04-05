@@ -210,7 +210,7 @@ begin
     Log.LogStatus('Playlist Manager', 'Initialization');
     PlaylistMan := TPlaylistManager.Create;
     if (Ini.CompanionEnabled <> 0) then
-      StartCompanionServer(Ini.CompanionCommPort, UTF8String(Ini.CompanionPlaylistName));
+      StartCompanionServer(Ini.CompanionCommPort, UTF8String(Ini.CompanionCommHost), UTF8String(Ini.CompanionPlaylistName));
 
     // GoldenStarsTwinkleMod
     Log.LogStatus('Effect Manager', 'Initialization');
@@ -498,6 +498,8 @@ begin
               KeepGoing := ScreenPopupSendScore.ParseMouse(mouseBtn, mouseDown, Event.button.x, Event.button.y)
             else if (ScreenPopupScoreDownload <> nil) and (ScreenPopupScoreDownload.Visible) then
               KeepGoing := ScreenPopupScoreDownload.ParseMouse(mouseBtn, mouseDown, Event.button.x, Event.button.y)
+            else if (ScreenPopupHelp <> nil) and (ScreenPopupHelp.Visible) then
+              KeepGoing := ScreenPopupHelp.ParseMouse(mouseBtn, mouseDown, Event.button.x, Event.button.y)
             else
             begin
               KeepGoing := Display.ParseMouse(mouseBtn, mouseDown, Event.button.x, Event.button.y);

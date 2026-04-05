@@ -42,6 +42,7 @@ uses
   UCommon,
   ULog,
   UIni,
+  UPlatform,
   SysUtils,
   UImage,
   UCatCovers,
@@ -93,8 +94,6 @@ uses
   {Stats Screens}
   UScreenStatMain,
   UScreenStatDetail,
-  {CreditsScreen}
-  UScreenCredits,
   {Popup for errors, etc.}
   UScreenPopup;
 
@@ -186,9 +185,6 @@ var
   //StatsScreens
   ScreenStatMain:         TScreenStatMain;
   ScreenStatDetail:       TScreenStatDetail;
-
-  //CreditsScreen
-  ScreenCredits: TScreenCredits;
 
   //popup mod
   ScreenPopupCheck: TScreenPopupCheck;
@@ -474,6 +470,9 @@ end;
 const
   WINDOW_ICON = 'icons/ultrastardx-icon.png';
 
+{* Progress callback for song loading - updates loading screen *}
+procedure OnSongLoadingProgress(const Stats: TSongLoadingStats); forward;
+
 procedure Initialize3D (Title: string);
 var
   Icon: PSDL_Surface;
@@ -537,9 +536,16 @@ begin
   Log.LogStatus('Creating Avatars Cache', 'Initialization');
   Avatars := TAvatarDatabase.Create;
 
-  // Songs
+  // Songs - set up progress callback before loading
   Log.LogStatus('Creating Song Array', 'Initialization');
+  SongLoadingProgressCallback := @OnSongLoadingProgress;
   Songs := TSongs.Create;
+  SongLoadingProgressCallback := nil;  // Clear callback after loading
+
+  // Log song loading statistics
+  Log.LogStatus(Format('Song loading complete: %d loaded, %d failed in %.3f seconds',
+    [Songs.LoadingStats.SongsLoaded, Songs.LoadingStats.SongsFailed,
+     Songs.LoadingStats.LoadTimeMs / 1000]), 'Initialization');
 
   Log.LogStatus('Creating 2nd Song Array', 'Initialization');
   CatSongs := TCatSongs.Create;
@@ -924,6 +930,17 @@ begin
   end;
 end;
 
+{* Progress callback for song loading - updates loading screen progress bar *}
+procedure OnSongLoadingProgress(const Stats: TSongLoadingStats);
+begin
+  // Only update every 20 songs to avoid slowdown, plus first and last
+  if Assigned(ScreenLoading) and (Stats.FilesFound > 0) and
+     ((Stats.CurrentFile mod 20 = 0) or (Stats.CurrentFile = 1) or (Stats.CurrentFile = Stats.FilesFound)) then
+  begin
+    ScreenLoading.SetProgress(Stats.CurrentFile, Stats.FilesFound);
+  end;
+end;
+
 procedure LoadLoadingScreen;
 begin
   ScreenLoading := TScreenLoading.Create;
@@ -1006,9 +1023,8 @@ begin
   ScreenPartyTournamentOptions :=      TScreenPartyTournamentOptions.Create;
   ScreenPartyTournamentWin :=      TScreenPartyTournamentWin.Create;
   ScreenStatMain :=         TScreenStatMain.Create;
-  SDL_SetWindowTitle(Screen, PChar(Title + ' - Loading ScreenStatDetail & ScreenCredits'));
+  SDL_SetWindowTitle(Screen, PChar(Title + ' - Loading ScreenStatDetail'));
   ScreenStatDetail :=       TScreenStatDetail.Create;
-  ScreenCredits    :=       TScreenCredits.Create;
   SDL_SetWindowTitle(Screen, PChar(Title));
 end;
 

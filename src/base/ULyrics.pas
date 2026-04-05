@@ -42,9 +42,6 @@ uses
   UMusic;
 
 type
-  // stores two textures for enabled/disabled states
-  TPlayerIconTex = array [0..1] of TTexture;
-
   TLyricsEffect = (lfxSimple, lfxZoom, lfxSlide, lfxBall, lfxShift);
   
   PLyricWord = ^TLyricWord;
@@ -83,21 +80,16 @@ type
       LowerLine:      TLyricLine;    // second lind displayed (bottom)
       QueueLine:      TLyricLine;    // third line (will be displayed when lower line is finished)
 
-      IndicatorTex:   TTexture;      // texture for lyric indikator
       BallTex:        TTexture;      // texture of the ball for the lyric effect
 
       QueueFull:      boolean;       // set to true if the queue is full and a line will be replaced with the next AddLine
       LCounter:       integer;       // line counter
 
-      // duet mode - textures for player icons
-      PlayerIconTex:  array[0..UIni.IMaxPlayerCount -1] of TPlayerIconTex;
-
       // Some helper procedures for lyric drawing
       procedure DrawLyrics (Beat: real);
-      procedure UpdateLineMetrics(LyricLine: TLyricLine);
+      procedure UpdateLineMetrics(LyricLine: TLyricLine) overload;
       procedure DrawLyricsWords(LyricLine: TLyricLine; X, Y: real; StartWord, EndWord: integer);
       procedure DrawLyricsLine(X, W, Y, H: real; Line: TLyricLine; Beat: real);
-      procedure DrawPlayerIcon(Player: byte; Enabled: boolean; X, Y: real; Size, Alpha: real);
       procedure DrawBall(XBall, YBall, Alpha: real);
 
     public
@@ -133,7 +125,6 @@ type
 
       // song specific settings
       BPM:            real;
-      Resolution:     integer;
 
       // properties to easily read options of this class
       property IsQueueFull: boolean read QueueFull;  // line in queue?
@@ -143,10 +134,11 @@ type
       procedure Draw (Beat: real);                 // draw the current (active at beat) lyrics
 
       // clears all cached song specific information
-      procedure Clear(cBPM: real = 0; cResolution: integer = 0);
+      procedure Clear(cBPM: real = 0);
 
       function GetUpperLine(): TLyricLine;
       function GetLowerLine(): TLyricLine;
+      procedure UpdateLineMetrics() overload;
 
       function GetUpperLineIndex(): integer;
 
@@ -208,7 +200,6 @@ begin
   inherited Create();
 
   BPM := 0;
-  Resolution := 0;
   LCounter := 0;
   QueueFull := False;
 
@@ -240,17 +231,17 @@ begin
   UpperLine.Free;
   LowerLine.Free;
   QueueLine.Free;
+  FreeTexture(BallTex);
   inherited;
 end;
 
 {**
  * Clears all cached Song specific Information.
  *}
-procedure TLyricEngine.Clear(cBPM: real; cResolution: integer);
+procedure TLyricEngine.Clear(cBPM: real);
 begin
   UpperLine.CurWord := -1;
   BPM := cBPM;
-  Resolution := cResolution;
   LCounter := 0;
   QueueFull := False;
 
@@ -266,18 +257,9 @@ procedure TLyricEngine.LoadTextures;
 var
   I: Integer;
 begin
-  // lyric indicator (bar that indicates when the line start)
-  IndicatorTex := Texture.LoadTexture(Skin.GetTextureFileName('LyricHelpBar'), TEXTURE_TYPE_TRANSPARENT, $FF00FF);
 
   // ball for current word hover in ball effect
   BallTex := Texture.LoadTexture(Skin.GetTextureFileName('Ball'), TEXTURE_TYPE_TRANSPARENT, 0);
-
-  // duet mode: load player icon
-  for I := 0 to UIni.IMaxPlayerCount - 1 do
-  begin
-    PlayerIconTex[I][0] := Texture.LoadTexture(Skin.GetTextureFileName('LyricIcon_P' + InttoStr(I+1)), TEXTURE_TYPE_TRANSPARENT, 0);
-    PlayerIconTex[I][1] := Texture.LoadTexture(Skin.GetTextureFileName('LyricIconD_P' + InttoStr(I+1)), TEXTURE_TYPE_TRANSPARENT, 0);
-  end;
 end;
 
 {**
@@ -371,34 +353,6 @@ begin
   DrawLyricsLine(LowerLineX, LowerLineW, LowerLineY, LowerLineH, LowerLine, Beat);
 end;
 
-{**
- * Draws a Player's icon.
- *}
-procedure TLyricEngine.DrawPlayerIcon(Player: byte; Enabled: boolean; X, Y: real; Size, Alpha: real);
-var
-  IEnabled: byte;
-begin
-  if Enabled then
-    IEnabled := 0
-  else
-    IEnabled := 1;
-
-  glEnable(GL_TEXTURE_2D);
-  glEnable(GL_BLEND);
-  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-  glBindTexture(GL_TEXTURE_2D, PlayerIconTex[Player][IEnabled].TexNum);
-
-  glColor4f(1, 1, 1, Alpha);
-  glBegin(GL_QUADS);
-    glTexCoord2f(0, 0); glVertex2f(X, Y);
-    glTexCoord2f(0, 1); glVertex2f(X, Y + Size);
-    glTexCoord2f(1, 1); glVertex2f(X + Size, Y + Size);
-    glTexCoord2f(1, 0); glVertex2f(X + Size, Y);
-  glEnd;
-
-  glDisable(GL_BLEND);
-  glDisable(GL_TEXTURE_2D);
-end;
 
 {**
  * Draws the Ball over the LyricLine if needed.
@@ -513,6 +467,12 @@ begin
   end;
 end;
 
+procedure TLyricEngine.UpdateLineMetrics();
+begin
+  UpdateLineMetrics(UpperLine);
+  UpdateLineMetrics(LowerLine);
+end;
+
 
 {**
  * Draws one LyricLine
@@ -540,16 +500,6 @@ begin
   // do not draw empty lines
   if (Length(Line.Words) = 0) then
     Exit;
-
-  {
-  // duet mode
-  IconSize := (2 * Height);
-  IconAlpha := Frac(Beat/(Resolution*4));
-
-  DrawPlayerIcon (0, True, X, Y + (42 - IconSize) / 2 , IconSize, IconAlpha);
-  DrawPlayerIcon (1, True, X + IconSize + 1,  Y + (42 - IconSize) / 2, IconSize, IconAlpha);
-  DrawPlayerIcon (2, True, X + (IconSize + 1)*2, Y + (42 - IconSize) / 2, IconSize, IconAlpha);
-  }
 
   // set font size and style
   SetFontFamily(FontFamily);

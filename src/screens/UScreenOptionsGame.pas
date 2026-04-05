@@ -53,8 +53,12 @@ type
       old_Tabs:      integer;
       AVDelayOptInt: integer;
       MicDelayOptInt:integer;
+      AutoSkipToFirstNoteOptInt: integer;
+      SkipToFirstNoteOffsetOptInt: integer;
       AVDelaySelectNum:  integer;
       MicDelaySelectNum: integer;
+      AutoSkipSelectNum: integer;
+      SkipOffsetSelectNum: integer;
 
       procedure Leave;
       procedure ReloadCurrentScreen;
@@ -88,6 +92,19 @@ uses
 type
   TGetTextFunc = function(var Param: integer; Offset: integer; Modify: boolean; OptText: PUtf8String): boolean;
   UTF8StringArray = array of UTF8String;
+  InteractionID = (
+    iLanguageSlide,
+    iSongMenuSlide,
+    iTabsSlide,
+    iSortingSlide,
+    iShowScoresSlide,
+    iDebugSlide,
+    iAVDelaySlide,
+    iMicDelaySlide,
+    iAutoSkipFirstNoteSlide,
+    iSkipToFirstNoteOffsetSlide,
+    iBackButton
+  );
 
 function TScreenOptionsGame.ParseInput(PressedKey: cardinal; CharCode: UCS4Char; PressedDown: boolean): boolean;
 begin
@@ -114,7 +131,7 @@ begin
         end;
       SDLK_RETURN:
         begin
-          if SelInteraction = 8 then
+          if SelInteraction = ord(iBackButton) then
             Leave;
         end;
       SDLK_DOWN:
@@ -123,26 +140,26 @@ begin
         InteractPrev;
       SDLK_RIGHT:
         begin
-          if (SelInteraction >= 0) and (SelInteraction <= 7) then
+          if Interactions[SelInteraction].Typ = iSelectS then
           begin
             AudioPlayback.PlaySound(SoundLib.Option);
             InteractInc;
           end;
           UpdateCalculatedSelectSlides(false);
-          if (SelInteraction = 0) then
+          if (SelInteraction = ord(iLanguageSlide)) then
           begin
             ReloadCurrentScreen;
           end;
         end;
       SDLK_LEFT:
         begin
-          if (SelInteraction >= 0) and (SelInteraction <= 7) then
+          if Interactions[SelInteraction].Typ = iSelectS then
           begin
             AudioPlayback.PlaySound(SoundLib.Option);
             InteractDec;
           end;
           UpdateCalculatedSelectSlides(false);
-          if (SelInteraction = 0) then
+          if (SelInteraction = ord(iLanguageSlide)) then
           begin
             ReloadCurrentScreen;
           end;
@@ -208,19 +225,41 @@ begin
   end;
 end;
 
+function GetSkipToFirstNoteOffsetOptText(var Param: integer; Offset: integer; Modify: boolean; OptText: PUTF8String): boolean;
+begin
+  if Param + Offset < 0 then
+    Result := false
+  else if Param + Offset > 120 then
+    Result := false
+  else
+  begin
+    if OptText <> nil then
+      OptText^ := Format('%d s', [Param + Offset]);
+    if Modify then
+      Param := Param + Offset;
+    Result := true;
+  end;
+end;
+
 procedure TScreenOptionsGame.UpdateCalculatedSelectSlides(Init: boolean);
 begin
   CalculateSelectSlide(Init, @GetAVDelayOptText, Ini.AVDelay, AVDelayOptInt, IAVDelay);
   CalculateSelectSlide(Init, @GetMicDelayOptText, Ini.MicDelay, MicDelayOptInt, IMicDelay);
+  CalculateSelectSlide(Init, @GetSkipToFirstNoteOffsetOptText, Ini.SkipToFirstNoteNegativeOffset, SkipToFirstNoteOffsetOptInt, ISkipToFirstNoteNegativeOffset);
   if Init then
   begin
     AVDelaySelectNum := AddSelectSlide('SING_OPTIONS_GAME_AVDELAY', AVDelayOptInt, IAVDelay);
     MicDelaySelectNum := AddSelectSlide('SING_OPTIONS_GAME_MICDELAY', MicDelayOptInt, IMicDelay);
+    AutoSkipToFirstNoteOptInt := Ord(Ini.AutoSkipToFirstNote);
+    AutoSkipSelectNum := AddSelectSlide('SING_OPTIONS_GAME_AUTO_SKIP_FIRST_NOTE', AutoSkipToFirstNoteOptInt, IAutoSkipFirstNoteTranslated);
+    SkipOffsetSelectNum := AddSelectSlide('SING_OPTIONS_GAME_SKIP_TO_FIRST_NOTE_OFFSET', SkipToFirstNoteOffsetOptInt, ISkipToFirstNoteNegativeOffset);
   end
   else
   begin
     UpdateSelectSlideOptions(AVDelaySelectNum, IAVDelay, AVDelayOptInt);
     UpdateSelectSlideOptions(MicDelaySelectNum, IMicDelay, MicDelayOptInt);
+    UpdateSelectSlideOptions(AutoSkipSelectNum, IAutoSkipFirstNoteTranslated, AutoSkipToFirstNoteOptInt);
+    UpdateSelectSlideOptions(SkipOffsetSelectNum, ISkipToFirstNoteNegativeOffset, SkipToFirstNoteOffsetOptInt);
   end;
 end;
 
@@ -250,6 +289,7 @@ end;
 
 procedure TScreenOptionsGame.Leave;
 begin
+  Ini.AutoSkipToFirstNote := AutoSkipToFirstNoteOptInt <> 0;
   Ini.Save;
   ReloadAllScreens;
   ReloadSongMenu;
@@ -288,6 +328,7 @@ procedure TScreenOptionsGame.ReloadSongMenu;
 begin
   if (Ini.Sorting <> old_Sorting) or (Ini.Tabs <> old_Tabs) or (old_SongMenu <> Ini.SongMenu) then
   begin
+    Ini.TabsAtStartup := Ini.Tabs;
     Theme.ThemeSongReload;
     ScreenSong.Free;
     ScreenSong := TScreenSong.Create;
@@ -296,6 +337,7 @@ end;
 
 procedure TScreenOptionsGame.LoadWidgets;
 begin
+  // when editing this, also update the InteractionID enum declaration
   AddSelectSlide('SING_OPTIONS_GAME_LANGUAGE', Ini.Language, ILanguageTranslated);
   AddSelectSlide('SING_OPTIONS_GAME_SONGMENU', Ini.SongMenu, ISongMenuTranslated);
   AddSelectSlide('SING_OPTIONS_GAME_TABS', Ini.Tabs, ITabsTranslated);

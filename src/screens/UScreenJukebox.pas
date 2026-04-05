@@ -1491,11 +1491,11 @@ begin
         // skip intro
         SDLK_S:
         begin
-          if (AudioPlayback.Position < CurrentSong.gap / 1000 - 6) then
+          if (AudioPlayback.Position < CurrentSong.gap / 1000 - (Ini.SkipToFirstNoteNegativeOffset + 1)) then
           begin
-            AudioPlayback.SetPosition(CurrentSong.gap / 1000.0 - 5.0);
+            AudioPlayback.SetPosition(CurrentSong.gap / 1000.0 - Ini.SkipToFirstNoteNegativeOffset);
               if (Assigned(fCurrentVideo)) then
-                 fCurrentVideo.Position := CurrentSong.VideoGAP + CurrentSong.Start + (CurrentSong.gap / 1000.0 - 5.0);
+                 fCurrentVideo.Position := CurrentSong.VideoGAP + CurrentSong.Start + (CurrentSong.gap / 1000.0 - Ini.SkipToFirstNoteNegativeOffset);
           end;
           Exit;
         end;
@@ -2670,7 +2670,7 @@ begin
   LyricsState.UpdateBeats();
 
   // main text
-  Lyrics.Clear(CurrentSong.BPM[0].BPM, CurrentSong.Resolution);
+  Lyrics.Clear(CurrentSong.BPM);
 
   // initialize lyrics by filling its queue
   while (not Lyrics.IsQueueFull) and

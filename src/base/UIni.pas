@@ -99,7 +99,7 @@ type
 
   TVisualizerOption      = (voOff, voWhenNoVideo, voWhenNoVideoAndImage, voOn);
   TBackgroundMusicOption = (bmoOff, bmoOn);
-  TSongMenuMode = ( smRoulette, smChessboard, smCarousel, smSlotMachine, smSlide, smList, smMosaic);
+  TSongMenuMode = ( smRoulette, smChessboard, smList);
 
   TIni = class
     private
@@ -152,10 +152,13 @@ type
       LogLevel:       integer;
       AVDelay:        integer;
       MicDelay:       integer;
+      AutoSkipToFirstNote:       boolean;
+      SkipToFirstNoteNegativeOffset: integer;
 
       // Companion
       CompanionEnabled: integer;
       CompanionCommPort: integer;
+      CompanionCommHost: string;
       CompanionPlaylistName: string;
 
       // Graphics
@@ -191,6 +194,11 @@ type
       SoundFont:      string;
       ReplayGain:     integer;
 
+      AudioVolume:    integer;
+      VocalsVolume:   integer;
+      SfxVolume:      integer;
+      BackgroundMusicVolume: integer;
+
       SyncTo: integer;
 
       // Song Preview
@@ -218,13 +226,11 @@ type
       ScreenFade:     integer;
       AskBeforeDel:   integer;
       OnSongClick:    integer;
-      LineBonus:      integer;
       PartyPopup:     integer;
       SingScores:     integer;
       TopScores:      integer;
       SingTimebarMode:       integer;
       JukeboxTimebarMode:    integer;
-      DefaultSingMode:       integer;
 
       // Controller
       Joypad:         integer;
@@ -355,10 +361,10 @@ const
 
 const
   ISorting:      array[0..10] of UTF8String = ('Edition', 'Genre', 'Language', 'Folder', 'Title', 'Artist', 'Artist2', 'Year', 'Year Reversed', 'Decade', 'Playlist');
-  ISongMenuMode: array[0..6] of UTF8String = ('Roulette', 'Chessboard', 'Carousel', 'Slot Machine', 'Slide', 'List', 'Mosaic');
+  ISongMenuMode: array[0..2] of UTF8String = ('Roulette', 'Chessboard', 'List');
 
 type
-  TSortingType = (sEdition, sGenre, sLanguage, sFolder, sTitle, sArtist, sArtist2, sYear, sYearReversed, sDecade, sPlaylist);
+  TSortingType = (sEdition, sGenre, sLanguage, sFolder, sTitle, sArtist, sArtist2, sYear, sYearReversed, sDecade);
 
 const
   IShowScores:       array[0..2] of UTF8String  = ('Off', 'When exists', 'On');
@@ -456,9 +462,7 @@ const
   sStartSing = 0;
   sSelectPlayer = 1;
   sOpenMenu = 2;
-  IDefaultSingMode: array[0..1] of UTF8String = ('Regular', 'Instrumental');
 
-  ILineBonus:     array[0..1] of UTF8String = ('Off', 'On');
   IPartyPopup:    array[0..1] of UTF8String = ('Off', 'On');
 
   IJoypad:        array[0..1] of UTF8String = ('Off', 'On');
@@ -488,7 +492,7 @@ var
   IDifficultyTranslated:       array[0..2] of UTF8String  = ('Easy', 'Medium', 'Hard');
   ITabsTranslated:             array[0..1] of UTF8String  = ('Off', 'On');
 
-  ISongMenuTranslated:         array[0..6] of UTF8String  = ('Roulette', 'Chessboard', 'Carousel', 'Slot Machine', 'Slide', 'List', 'Mosaic');
+  ISongMenuTranslated:         array[0..2] of UTF8String  = ('Roulette', 'Chessboard', 'List');
 
   //ISortingTranslated:          array[0..9] of UTF8String  = ('Edition', 'Genre', 'Language', 'Folder', 'Title', 'Artist', 'Artist2', 'Year', 'Decade', 'Playlist');
   ISortingTranslated:          array[0..9] of UTF8String  = ('Edition', 'Genre', 'Language', 'Folder', 'Title', 'Artist', 'Artist2', 'Year', 'Year Reversed', 'Decade');
@@ -498,6 +502,8 @@ var
   IDebugTranslated:            array[0..1] of UTF8String  = ('Off', 'On');
   IAVDelay:                    array of UTF8String;
   IMicDelay:                   array of UTF8String;
+  ISkipToFirstNoteNegativeOffset: array of UTF8String;
+  IAutoSkipFirstNoteTranslated:   array[0..1] of UTF8String;
 
   IFullScreenTranslated:       array[0..2] of UTF8String  = ('Off', 'On', 'Borderless');
   IVisualizerTranslated:       array[0..3] of UTF8String  = ('Off', 'WhenNoVideo', 'WhenNoVideoAndImage','On');
@@ -555,11 +561,9 @@ var
   IScreenFadeTranslated:       array[0..1] of UTF8String = ('Off', 'On');
   IAskbeforeDelTranslated:     array[0..1] of UTF8String = ('Off', 'On');
   IOnSongClickTranslated:      array[0..2] of UTF8String = ('Sing', 'Select Players', 'Open Menu');
-  ILineBonusTranslated:        array[0..1] of UTF8String = ('Off', 'On');
   IPartyPopupTranslated:       array[0..1] of UTF8String = ('Off', 'On');
   ISingScoresTranslated:       array[0..1] of UTF8String = ('Off', 'On');
   ITopScoresTranslated:        array[0..1] of UTF8String = ('All', 'Player');
-  IDefaultSingModeTranslated:  array[0..1] of UTF8String = ('Regular', 'Instrumental');
 
   IJoypadTranslated:           array[0..1] of UTF8String = ('Off', 'On');
   IMouseTranslated:            array[0..2] of UTF8String = ('Off', 'On [System Cursor]', 'On [Game Cursor]');
@@ -638,11 +642,7 @@ begin
 
   ISongMenuTranslated[0]              := ULanguage.Language.Translate('OPTION_VALUE_ROULETTE');
   ISongMenuTranslated[1]              := ULanguage.Language.Translate('OPTION_VALUE_CHESSBOARD');
-  ISongMenuTranslated[2]              := ULanguage.Language.Translate('OPTION_VALUE_CAROUSEL');
-  ISongMenuTranslated[3]              := ULanguage.Language.Translate('OPTION_VALUE_SLOTMACHINE');
-  ISongMenuTranslated[4]              := ULanguage.Language.Translate('OPTION_VALUE_SLIDE');
-  ISongMenuTranslated[5]              := ULanguage.Language.Translate('OPTION_VALUE_LIST');
-  ISongMenuTranslated[6]              := ULanguage.Language.Translate('OPTION_VALUE_MOSAIC');
+  ISongMenuTranslated[2]              := ULanguage.Language.Translate('OPTION_VALUE_LIST');
 
   ISortingTranslated[0]               := ULanguage.Language.Translate('OPTION_VALUE_EDITION');
   ISortingTranslated[1]               := ULanguage.Language.Translate('OPTION_VALUE_GENRE');
@@ -708,6 +708,9 @@ begin
 
   IVoicePassthroughTranslated[0]      := ULanguage.Language.Translate('OPTION_VALUE_OFF');
   IVoicePassthroughTranslated[1]      := ULanguage.Language.Translate('OPTION_VALUE_ON');
+
+  IAutoSkipFirstNoteTranslated[0]     := ULanguage.Language.Translate('OPTION_VALUE_OFF');
+  IAutoSkipFirstNoteTranslated[1]     := ULanguage.Language.Translate('OPTION_VALUE_ON');
 
   ISyncToTranslated[Ord(stMusic)]     := ULanguage.Language.Translate('OPTION_VALUE_MUSIC');
   ISyncToTranslated[Ord(stLyrics)]    := ULanguage.Language.Translate('OPTION_VALUE_LYRICS');
@@ -839,12 +842,6 @@ begin
   IOnSongClickTranslated[0]           := ULanguage.Language.Translate('OPTION_VALUE_SING');
   IOnSongClickTranslated[1]           := ULanguage.Language.Translate('OPTION_VALUE_SELECT_PLAYERS');
   IOnSongClickTranslated[2]           := ULanguage.Language.Translate('OPTION_VALUE_OPEN_MENU');
-
-  IDefaultSingModeTranslated[0]       := ULanguage.Language.Translate('OPTION_VALUE_REGULAR');
-  IDefaultSingModeTranslated[1]       := ULanguage.Language.Translate('OPTION_VALUE_INSTRUMENTAL');
-
-  ILineBonusTranslated[0]             := ULanguage.Language.Translate('OPTION_VALUE_OFF');
-  ILineBonusTranslated[1]             := ULanguage.Language.Translate('OPTION_VALUE_ON');
 
   IPartyPopupTranslated[0]            := ULanguage.Language.Translate('OPTION_VALUE_OFF');
   IPartyPopupTranslated[1]            := ULanguage.Language.Translate('OPTION_VALUE_ON');
@@ -1091,6 +1088,7 @@ var
   DeviceIndex:  integer;
   ChannelCount: integer;
   ChannelIndex: integer;
+  PlayerNumber: integer;
   RecordKeys:   TStringList;
   i:            integer;
 begin
@@ -1133,8 +1131,11 @@ begin
       // or set non-configured channels to no player (=0).
       for ChannelIndex := 0 to High(DeviceCfg.ChannelToPlayerMap) do
       begin
-        DeviceCfg.ChannelToPlayerMap[ChannelIndex] :=
+        PlayerNumber :=
           IniFile.ReadInteger('Record', Format('Channel%d[%d]', [ChannelIndex+1, DeviceIndex]), CHANNEL_OFF);
+        if (PlayerNumber < 1) or (PlayerNumber > IMaxPlayerCount) then
+          PlayerNumber := CHANNEL_OFF;
+        DeviceCfg.ChannelToPlayerMap[ChannelIndex] := PlayerNumber;
       end;
     end;
   end;
@@ -1167,7 +1168,7 @@ begin
     for ChannelIndex := 0 to High(InputDeviceConfig[DeviceIndex].ChannelToPlayerMap) do
     begin
       PlayerNumber := InputDeviceConfig[DeviceIndex].ChannelToPlayerMap[ChannelIndex];
-      if PlayerNumber > 0 then
+      if (PlayerNumber >= 1) and (PlayerNumber <= IMaxPlayerCount) then
       begin
         IniFile.WriteInteger('Record',
             Format('Channel%d[%d]', [ChannelIndex+1, DeviceIndex+1]),
@@ -1423,6 +1424,43 @@ var
   KeysHigh: string;
   ReadPianoKeysLow: TPianoKeyArray;
   ReadPianoKeysHigh: TPianoKeyArray;
+
+  function ReadVolumePercent(const Section, Key: string; DefaultValue: integer): integer;
+  var
+    RawValue: UTF8String;
+    NumericValue: integer;
+    Parsed: boolean;
+    OldIndex: integer;
+  begin
+    Result := DefaultValue;
+
+    if not IniFile.ValueExists(Section, Key) then
+      Exit;
+
+    RawValue := Trim(IniFile.ReadString(Section, Key, IntToStr(DefaultValue)));
+    Parsed := TryStrToInt(RawValue, NumericValue);
+    if (not Parsed) and (Length(RawValue) > 0) and (RawValue[Length(RawValue)] = '%') then
+    begin
+      Delete(RawValue, Length(RawValue), 1);
+      Parsed := TryStrToInt(RawValue, NumericValue);
+    end;
+
+    if Parsed then
+      Result := NumericValue
+    else
+    begin
+      OldIndex := ReadArrayIndex(IPreviewVolume, IniFile, Section, Key, -1);
+      if OldIndex >= 0 then
+        Result := Round(IPreviewVolumeVals[OldIndex] * 100)
+      else
+        Result := DefaultValue;
+    end;
+
+    if Result < 0 then
+      Result := 0
+    else if Result > 100 then
+      Result := 100;
+  end;
 begin
   LoadFontFamilyNames;
   ILyricsFont := FontFamilyNames;
@@ -1490,8 +1528,16 @@ begin
 
   MicDelay := IniFile.ReadInteger('Game', 'MicDelay', 140);
 
+  AutoSkipToFirstNote := IniFile.ReadBool('Game', 'AutoSkipToFirstNote', false);
+  SkipToFirstNoteNegativeOffset := IniFile.ReadInteger('Game', 'SkipToFirstNoteNegativeOffset', 5);
+  if SkipToFirstNoteNegativeOffset < 0 then
+    SkipToFirstNoteNegativeOffset := 0;
+
   CompanionEnabled := IniFile.ReadInteger('Companion', 'CompanionEnabled', 1);
   CompanionCommPort := IniFile.ReadInteger('Companion', 'CompanionCommPort', 3001);
+  CompanionCommHost := IniFile.ReadString('Companion', 'CompanionCommHost', 'localhost');
+  if Trim(CompanionCommHost) = '' then
+    CompanionCommHost := 'localhost';
   CompanionPlaylistName := IniFile.ReadString('Companion', 'CompanionPlaylistName', 'CompanionPlaylist');
 
   // Read Users Info (Network)
@@ -1559,8 +1605,11 @@ begin
   // AudioOutputBufferSize
   AudioOutputBufferSizeIndex := ReadArrayIndex(IAudioOutputBufferSize, IniFile, 'Sound', 'AudioOutputBufferSize', 0);
 
-  //Preview Volume
-  PreviewVolume := ReadArrayIndex(IPreviewVolume, IniFile, 'Sound', 'PreviewVolume', 5);
+  AudioVolume  := ReadVolumePercent('Sound', 'AudioVolume', 100);
+  VocalsVolume := ReadVolumePercent('Sound', 'VocalsVolume', 100);
+  SfxVolume    := ReadVolumePercent('Sound', 'SfxVolume', 100);
+  PreviewVolume := ReadVolumePercent('Sound', 'PreviewVolume', 30);
+  BackgroundMusicVolume := ReadVolumePercent('Sound', 'BackgroundMusicVolume', 40);
 
   // ReplayGain
   ReplayGain := ReadArrayIndex(IReplayGain, IniFile, 'Sound', 'ReplayGain', 0);
@@ -1621,12 +1670,6 @@ begin
 
   // OnSongClick
   OnSongClick := ReadArrayIndex(IOnSongClick, IniFile, 'Advanced', 'OnSongClick', IGNORE_INDEX, 'Sing');
-
-  // DefaultSingMode
-  DefaultSingMode := ReadArrayIndex(IDefaultSingMode, IniFile, 'Advanced', 'DefaultSingMode', IGNORE_INDEX, 'Regular');
-
-  // Linebonus
-  LineBonus := ReadArrayIndex(ILineBonus, IniFile, 'Advanced', 'LineBonus', 1);
 
   // PartyPopup
   PartyPopup := ReadArrayIndex(IPartyPopup, IniFile, 'Advanced', 'PartyPopup', IGNORE_INDEX, 'On');
@@ -1831,8 +1874,12 @@ begin
     IniFile.WriteInteger('Game', 'AVDelay', AVDelay);
     IniFile.WriteInteger('Game', 'MicDelay', MicDelay);
 
+    IniFile.WriteBool('Game', 'AutoSkipToFirstNote', AutoSkipToFirstNote);
+    IniFile.WriteInteger('Game', 'SkipToFirstNoteNegativeOffset', SkipToFirstNoteNegativeOffset);
+
     IniFile.WriteInteger('Companion', 'CompanionEnabled', CompanionEnabled);
     IniFile.WriteInteger('Companion', 'CompanionCommPort', CompanionCommPort);
+    IniFile.WriteString('Companion', 'CompanionCommHost', CompanionCommHost);
     IniFile.WriteString('Companion', 'CompanionPlaylistName', CompanionPlaylistName);
 
     // MaxFramerate
@@ -1897,8 +1944,12 @@ begin
     // Background music
     IniFile.WriteString('Sound', 'BackgroundMusic', IBackgroundMusic[BackgroundMusicOption]);
 
-    // Song Preview
-    IniFile.WriteString('Sound', 'PreviewVolume', IPreviewVolume[PreviewVolume]);
+    // Volume Settings
+    IniFile.WriteInteger('Sound', 'AudioVolume', AudioVolume);
+    IniFile.WriteInteger('Sound', 'VocalsVolume', VocalsVolume);
+    IniFile.WriteInteger('Sound', 'SfxVolume', SfxVolume);
+    IniFile.WriteInteger('Sound', 'BackgroundMusicVolume', BackgroundMusicVolume);
+    IniFile.WriteInteger('Sound', 'PreviewVolume', PreviewVolume);
 
     // PreviewFading
     IniFile.WriteString('Sound', 'PreviewFading', IPreviewFading[PreviewFading]);
@@ -1949,12 +2000,6 @@ begin
 
     //OnSongClick
     IniFile.WriteString('Advanced', 'OnSongClick', IOnSongClick[OnSongClick]);
-
-    //DefaultSingMode
-    IniFile.WriteString('Advanced', 'DefaultSingMode', IDefaultSingMode[DefaultSingMode]);
-
-    //Line Bonus
-    IniFile.WriteString('Advanced', 'LineBonus', ILineBonus[LineBonus]);
 
     //Party Popup
     IniFile.WriteString('Advanced', 'PartyPopup', IPartyPopup[PartyPopup]);

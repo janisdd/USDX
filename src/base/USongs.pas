@@ -77,11 +77,6 @@ type
     fltTags
   );
 
-  TBPM = record
-    BPM:       real;
-    StartBeat: real;
-  end;
-
   TScore = record
     Name:   UTF8String;
     Score:  integer;
@@ -89,6 +84,21 @@ type
   end;
 
   TPathDynArray = array of IPath;
+
+  // Song loading statistics
+  TSongLoadingStats = record
+    FilesFound:     Integer;
+    SongsLoaded:    Integer;
+    SongsFailed:    Integer;
+    CurrentFile:    Integer;
+    CurrentPath:    UTF8String;
+    StartTime:      TDateTime;
+    EndTime:        TDateTime;
+    LoadTimeMs:     Double;
+  end;
+
+  // Progress callback for loading screen updates
+  TSongLoadingProgressCallback = procedure(const Stats: TSongLoadingStats);
 
   {$IFDEF USE_PSEUDO_THREAD}
   TSongs = class(TPseudoThread)
@@ -110,6 +120,7 @@ type
   public
     SongList: TList;            // array of songs
     SongListSafe: TList;        // array of songs indexed via BrowseTXTFilesSafe
+    LoadingStats: TSongLoadingStats;  // Statistics from last load
 
     Selected: integer;        // selected song index
     constructor Create();
@@ -146,6 +157,7 @@ type
     procedure HideCategory(Index: integer);                 // hides all songs in category
     procedure ClickCategoryButton(Index: integer);          // uses ShowCategory and HideCategory when needed
     procedure ShowCategoryList;                             // Hides all Songs And Show the List of all Categorys
+    procedure ResetVisibleIndexCache;
     function FindNextVisible(SearchFrom: integer): integer; // Find Next visible Song
     function FindPreviousVisible(SearchFrom: integer): integer; // Find Previous visible Song
     function VisibleSongs: integer;                         // returns number of visible songs (for tabs)
@@ -158,6 +170,7 @@ type
 var
   Songs:    TSongs;    // all songs
   CatSongs: TCatSongs; // categorized songs
+  SongLoadingProgressCallback: TSongLoadingProgressCallback; // Progress callback for loading screen
 
 const
   IN_ACCESS        = $00000001; //* File was accessed */
@@ -177,6 +190,7 @@ implementation
 
 uses
   StrUtils,
+  sdl2,
   UCovers,
   UDisplay,
   UFiles,
@@ -257,6 +271,18 @@ begin
   ClearSongListSafe;
 end;
 
+var
+  FileDiscoveryCounter: Integer = 0;  // Counter for SDL event processing during discovery
+
+{* Process SDL events to keep app responsive *}
+procedure PumpSDLEvents;
+var
+  Event: TSDL_Event;
+begin
+  while SDL_PollEvent(@Event) <> 0 do
+    ; // Discard events during loading
+end;
+
 constructor TSongs.Create();
 begin
   // do not start thread BEFORE initialization (suspended = true)
@@ -266,6 +292,14 @@ begin
   SongList           := TList.Create();
   SongListSafe       := TList.Create();
   System.InitCriticalSection(BrowseTXTFilesSafeLock);
+
+  // Initialize loading stats
+  LoadingStats.FilesFound := 0;
+  LoadingStats.SongsLoaded := 0;
+  LoadingStats.SongsFailed := 0;
+  LoadingStats.CurrentFile := 0;
+  LoadingStats.CurrentPath := '';
+  LoadingStats.LoadTimeMs := 0;
 
   // until it is fixed, simply load the song-list
   int_LoadSongList();
@@ -314,11 +348,23 @@ begin
   try
     fProcessing := true;
 
+    // Reset and start timing
+    LoadingStats.FilesFound := 0;
+    LoadingStats.SongsLoaded := 0;
+    LoadingStats.SongsFailed := 0;
+    LoadingStats.CurrentFile := 0;
+    LoadingStats.CurrentPath := '';
+    LoadingStats.StartTime := Now;
+
     Log.LogStatus('Searching For Songs', 'SongList');
 
     // browse directories
     for I := 0 to SongPaths.Count-1 do
       BrowseDir(SongPaths[I] as IPath);
+
+    // Record end time
+    LoadingStats.EndTime := Now;
+    LoadingStats.LoadTimeMs := (LoadingStats.EndTime - LoadingStats.StartTime) * 24 * 60 * 60 * 1000;
 
     if assigned(CatSongs) then
       CatSongs.Refresh;
@@ -365,13 +411,22 @@ begin
   Iter := FileSystem.FileFind(Dir.Append('*'), faAnyFile);
   while (Iter.HasNext) do
   begin
-    // the debug statements in this function have exactly the same message length before it prints the path
     FileInfo := Iter.Next;
     FileName := FileInfo.Name;
+
+    // Process SDL events periodically to keep app responsive
+    Inc(FileDiscoveryCounter);
+    if (FileDiscoveryCounter mod 100 = 0) then
+    begin
+      PumpSDLEvents;
+      // Update window title with discovery progress
+      if Assigned(Screen) then
+        SDL_SetWindowTitle(Screen, PChar(Format('UltraStar Deluxe - Discovering songs: %d found...', [Length(Files)])));
+    end;
+
     if ((FileInfo.Attr and faDirectory) <> 0) then
     begin
       if Recursive and (not FileName.Equals('.')) and (not FileName.Equals('..')) and (not FileName.Equals('')) then begin
-        Log.LogDebug('Recursing: ' + Dir.Append(FileName).ToWide, 'TSongs.FindFilesByExtension');
         FindFilesByExtension(Dir.Append(FileName), Ext, true, Files);
       end;
     end
@@ -380,7 +435,6 @@ begin
       // do not load files which either have wrong extension or start with a point
       if (Ext.Equals(FileName.GetExtension(), true) and not (FileName.ToUTF8()[1] = '.')) then
       begin
-        Log.LogDebug('Found file ' + Dir.Append(FileName).ToWide, 'TSongs.FindFilesByExtension');
         SetLength(Files, Length(Files)+1);
         Files[High(Files)] := Dir.Append(FileName);
       end;
@@ -394,24 +448,51 @@ var
   I: integer;
   Files: TPathDynArray;
   Song: TSong;
-  //CloneSong: TSong;
   Extension: IPath;
 begin
   Log.LogDebug('Searching directory ' + Dir.ToWide + ' for txt files', 'TSongs.BrowseTXTFiles');
   SetLength(Files, 0);
+  FileDiscoveryCounter := 0;  // Reset counter for file discovery
   Extension := Path('.txt');
   FindFilesByExtension(Dir, Extension, true, Files);
 
+  // Update files found count
+  LoadingStats.FilesFound := LoadingStats.FilesFound + Length(Files);
+
   for I := 0 to High(Files) do
   begin
+    // Process SDL events to keep app responsive
+    PumpSDLEvents;
+
+    // Update progress info
+    LoadingStats.CurrentFile := LoadingStats.CurrentFile + 1;
+    LoadingStats.CurrentPath := Files[I].ToUTF8;
+
+    // Log progress and update window title every 50 songs
+    if (LoadingStats.CurrentFile mod 50 = 0) or (LoadingStats.CurrentFile = LoadingStats.FilesFound) then
+    begin
+      Log.LogStatus(Format('Loading songs: %d / %d', [LoadingStats.CurrentFile, LoadingStats.FilesFound]), 'SongLoader');
+      if Assigned(Screen) then
+        SDL_SetWindowTitle(Screen, PChar(Format('UltraStar Deluxe - Loading songs: %d / %d',
+          [LoadingStats.CurrentFile, LoadingStats.FilesFound])));
+    end;
+
+    // Call progress callback if set (for UI updates)
+    if Assigned(SongLoadingProgressCallback) then
+      SongLoadingProgressCallback(LoadingStats);
+
     Song := TSong.Create(Files[I]);
 
     if Song.Analyse then
-      SongList.Add(Song)
+    begin
+      SongList.Add(Song);
+      Inc(LoadingStats.SongsLoaded);
+    end
     else
     begin
       Log.LogError('AnalyseFile failed for "' + Files[I].ToNative + '".');
       FreeAndNil(Song);
+      Inc(LoadingStats.SongsFailed);
     end;
   end;
 
@@ -839,10 +920,6 @@ begin
         Songs.Sort(sArtist);
         Songs.Sort(sYear);
       end;
-    sPlaylist: begin
-        Songs.Sort(sTitle);
-        Songs.Sort(sArtist);
-      end;
   end; // case
 end;
 
@@ -1096,8 +1173,7 @@ begin
     CurSong.Visible := true;
 }
   end;
-  LastVisChecked := 0;
-  LastVisIndex := 0;
+  ResetVisibleIndexCache;
 
   // set CatNumber of last category
   if (Ini.TabsAtStartup = 1) and (High(Song) >= 1) then
@@ -1128,8 +1204,7 @@ begin
 //  KMS: This should be the same, but who knows :-)
     CatSongs.Song[S].Visible := ((CatSongs.Song[S].OrderNum = Index) and (not CatSongs.Song[S].Main));
   end;
-  LastVisChecked := 0;
-  LastVisIndex := 0;
+  ResetVisibleIndexCache;
 end;
 
 procedure TCatSongs.HideCategory(Index: integer); // hides all songs in category
@@ -1141,8 +1216,7 @@ begin
     if not CatSongs.Song[S].Main then
       CatSongs.Song[S].Visible := false // hides all at now
   end;
-  LastVisChecked := 0;
-  LastVisIndex := 0;
+  ResetVisibleIndexCache;
 end;
 
 procedure TCatSongs.ClickCategoryButton(Index: integer);
@@ -1170,10 +1244,18 @@ begin
     CatSongs.Song[S].Visible := CatSongs.Song[S].Main;
   CatSongs.Selected := CatNumShow; //Show last shown Category
   CatNumShow := -1;
-  LastVisChecked := 0;
-  LastVisIndex := 0;
+  ResetVisibleIndexCache;
 end;
 //Hide Categorys when in Category Hack End
+
+procedure TCatSongs.ResetVisibleIndexCache;
+begin
+  LastVisChecked := 0;
+  LastVisIndex := 0;
+
+  if Length(Song) > 0 then
+    Song[0].VisibleIndex := 0;
+end;
 
 // Wrong song selected when tabs on bug
 function TCatSongs.FindNextVisible(SearchFrom:integer): integer;// Find next Visible Song
@@ -1261,6 +1343,12 @@ begin
   ActiveFilterText := FilterStr;
   ActiveFilterType := Filter;
 
+  if Assigned(PlayListMan) then
+  begin
+    if (Filter = fltAll) and (Trim(FilterStr) = '') then
+      PlayListMan.RestoreSongOrder;
+  end;
+
   FilterStr := LowerCase(TransliterateToASCII(FilterStr));
 
   if (FilterStr <> '') then
@@ -1334,8 +1422,7 @@ begin
     end;
     Result := 0;
   end;
-  LastVisChecked := 0;
-  LastVisIndex := 0;
+  ResetVisibleIndexCache;
 end;
 
 // -----------------------------------------------------------------------------

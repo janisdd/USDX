@@ -808,6 +808,10 @@ type
   //Help-Popup
   TThemeHelp = class(TThemeBasic)
     Button1:    TThemeButton;
+    SelectVolAudio:    TThemeSelectSlide;
+    SelectVolVocals:   TThemeSelectSlide;
+    SelectVolSfx:      TThemeSelectSlide;
+    SelectVolPreview:  TThemeSelectSlide;
   end;
 
   TThemeInsertUser = class(TThemeBasic)
@@ -1184,7 +1188,7 @@ type
     Playlist:         TThemePlaylist;
 
     ILevel: array[0..2] of UTF8String;
-    IMode:  array[0..3] of UTF8String;
+    IMode:  array[0..2] of UTF8String;
     OptionsNetworkLegendStatic: array of TThemeStatic;
     OptionsNetworkLegendText: array of TThemeText;
 
@@ -1932,6 +1936,14 @@ begin
       ThemeLoadButton(SendScorePopup.Button1, 'SendScorePopupButton1');
       ThemeLoadButton(SendScorePopup.Button2, 'SendScorePopupButton2');
 
+      // help popup
+      ThemeLoadBasic (HelpPopup, 'HelpPopup');
+      ThemeLoadButton(HelpPopup.Button1, 'HelpPopupButton1');
+      ThemeLoadSelectSlide(HelpPopup.SelectVolAudio, 'HelpPopupSelectVolAudio');
+      ThemeLoadSelectSlide(HelpPopup.SelectVolVocals, 'HelpPopupSelectVolVocals');
+      ThemeLoadSelectSlide(HelpPopup.SelectVolSfx, 'HelpPopupSelectVolSfx');
+      ThemeLoadSelectSlide(HelpPopup.SelectVolPreview, 'HelpPopupSelectVolPreview');
+
       // download score popup
       ThemeLoadBasic (ScoreDownloadPopup, 'ScoreDownloadPopup');
       ThemeLoadButton(ScoreDownloadPopup.Button1, 'ScoreDownloadPopupButton1');
@@ -2136,8 +2148,7 @@ begin
       //Fill IMode
       IMode[0] := Language.Translate('PARTY_MODE_CLASSIC');
       IMode[1] := Language.Translate('PARTY_MODE_CLASSIC_FREE');
-      IMode[2] := Language.Translate('PARTY_MODE_CHALLENGE');
-      IMode[3] := Language.Translate('PARTY_MODE_TOURNAMENT');
+      IMode[2] := Language.Translate('PARTY_MODE_TOURNAMENT');
     end;
 
   CloseFile;
@@ -3766,11 +3777,7 @@ begin
   case (TSongMenuMode(Ini.SongMenu)) of
     smRoulette: prefix := 'Roulette';
     smChessboard: prefix := 'Chessboard';
-    smCarousel: prefix := 'Carousel';
-    smSlotMachine: prefix := 'SlotMachine';
-    smSlide: prefix := 'Slide';
-    smList: prefix := 'List';
-    smMosaic: prefix := 'Mosaic';
+    else prefix := 'List';
   end;
 
   // Song
@@ -3823,15 +3830,9 @@ begin
   Song.Cover.W := ReadInteger(SectionList, 'W', 300);
   Song.Cover.H := ReadInteger(SectionList, 'H', 200);
 
-  // 0 - roulette
-  // 1 - chessboard
-  // 2 - carousel
-  // 3 - slotmachine
-  // 4 - slide
-  // 5 - list
-  // 6 - mosaic
+  // Song menu modes: 0 - roulette, 1 - chessboard, 2 - list
   
-  if (TSongMenuMode(Ini.SongMenu) in [smChessboard, smMosaic]) then
+  if (TSongMenuMode(Ini.SongMenu) = smChessboard) then
   begin
     Song.Cover.Rows := ReadInteger(SectionList, 'Rows', 4);
     Song.Cover.Cols := ReadInteger(SectionList, 'Cols', 4);
@@ -3848,10 +3849,6 @@ begin
     Song.Cover.Tex := ReadString(SectionList,  'Text', '');
   end;
 
-  if (TSongMenuMode(Ini.SongMenu) in [smCarousel, smSlide]) then
-  begin
-    Song.Cover.Padding := ReadInteger(SectionList, 'Padding', 60);
-  end;
 
   if (TSongMenuMode(Ini.SongMenu) = smList) then
   begin
