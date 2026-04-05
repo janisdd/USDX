@@ -81,7 +81,7 @@ Example requests:
 - `/reindexDir`
 ```json
 {
-  "songsDirName": "Songs Directory Name"
+  "songsRootDirName": "Songs Directory Name"
 }
 ```
 
@@ -89,10 +89,10 @@ only the song dirs in the config.ini are supported (`SongDir1`, `SongDir2`, ...)
 
 As the server runs in a separate thread, it can take a while to reindex the songs. To avoid flooding the server with requests, the server will throttle the reindexing.
 The throttle window is configurable via the `config.ini` file (`CompanionReindexThrottleWindowSec`).
-The last request (trailing edge) will be executed after the throttle window has passed (last `songsDirName` wins).
+The last request (trailing edge) will be executed after the throttle window has passed (last `songsRootDirName` wins).
 
-If other requests with different `songsDirName` are received, they will be ignored until the trailing edge of the throttle window has passed.
-This is not optimal but this route is intended to be used with the same `songsDirName` over and over again (from the companion, downloaded songs dir).
+If other requests with different `songsRootDirName` are received, they will be ignored until the trailing edge of the throttle window has passed.
+This is not optimal but this route is intended to be used with the same `songsRootDirName` over and over again (from the companion, downloaded songs dir).
 
 *Also, currently the reindex indexes all songs fully, without checking if the song already exists. This is ok for now.*
 
