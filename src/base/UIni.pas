@@ -152,6 +152,8 @@ type
       LogLevel:       integer;
       AVDelay:        integer;
       MicDelay:       integer;
+      AutoSkipToFirstNote:       boolean;
+      SkipToFirstNoteNegativeOffset: integer;
 
       // Companion
       CompanionEnabled: integer;
@@ -499,6 +501,8 @@ var
   IDebugTranslated:            array[0..1] of UTF8String  = ('Off', 'On');
   IAVDelay:                    array of UTF8String;
   IMicDelay:                   array of UTF8String;
+  ISkipToFirstNoteNegativeOffset: array of UTF8String;
+  IAutoSkipFirstNoteTranslated:   array[0..1] of UTF8String;
 
   IFullScreenTranslated:       array[0..2] of UTF8String  = ('Off', 'On', 'Borderless');
   IVisualizerTranslated:       array[0..3] of UTF8String  = ('Off', 'WhenNoVideo', 'WhenNoVideoAndImage','On');
@@ -703,6 +707,9 @@ begin
 
   IVoicePassthroughTranslated[0]      := ULanguage.Language.Translate('OPTION_VALUE_OFF');
   IVoicePassthroughTranslated[1]      := ULanguage.Language.Translate('OPTION_VALUE_ON');
+
+  IAutoSkipFirstNoteTranslated[0]     := ULanguage.Language.Translate('OPTION_VALUE_OFF');
+  IAutoSkipFirstNoteTranslated[1]     := ULanguage.Language.Translate('OPTION_VALUE_ON');
 
   ISyncToTranslated[Ord(stMusic)]     := ULanguage.Language.Translate('OPTION_VALUE_MUSIC');
   ISyncToTranslated[Ord(stLyrics)]    := ULanguage.Language.Translate('OPTION_VALUE_LYRICS');
@@ -1520,6 +1527,11 @@ begin
 
   MicDelay := IniFile.ReadInteger('Game', 'MicDelay', 140);
 
+  AutoSkipToFirstNote := IniFile.ReadBool('Game', 'AutoSkipToFirstNote', false);
+  SkipToFirstNoteNegativeOffset := IniFile.ReadInteger('Game', 'SkipToFirstNoteNegativeOffset', 5);
+  if SkipToFirstNoteNegativeOffset < 0 then
+    SkipToFirstNoteNegativeOffset := 0;
+
   CompanionEnabled := IniFile.ReadInteger('Companion', 'CompanionEnabled', 1);
   CompanionCommPort := IniFile.ReadInteger('Companion', 'CompanionCommPort', 3001);
   CompanionPlaylistName := IniFile.ReadString('Companion', 'CompanionPlaylistName', 'CompanionPlaylist');
@@ -1857,6 +1869,9 @@ begin
 
     IniFile.WriteInteger('Game', 'AVDelay', AVDelay);
     IniFile.WriteInteger('Game', 'MicDelay', MicDelay);
+
+    IniFile.WriteBool('Game', 'AutoSkipToFirstNote', AutoSkipToFirstNote);
+    IniFile.WriteInteger('Game', 'SkipToFirstNoteNegativeOffset', SkipToFirstNoteNegativeOffset);
 
     IniFile.WriteInteger('Companion', 'CompanionEnabled', CompanionEnabled);
     IniFile.WriteInteger('Companion', 'CompanionCommPort', CompanionCommPort);

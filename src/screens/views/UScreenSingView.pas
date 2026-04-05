@@ -1006,6 +1006,7 @@ begin
       // analyze song if not paused
       if (not ScreenSing.Paused) then
       begin
+        ScreenSing.TryAutoSkipToFirstNoteIfNeeded;
         Sing(ScreenSing);
 
         //Update Medley Stats

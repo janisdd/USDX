@@ -53,8 +53,12 @@ type
       old_Tabs:      integer;
       AVDelayOptInt: integer;
       MicDelayOptInt:integer;
+      AutoSkipToFirstNoteOptInt: integer;
+      SkipToFirstNoteOffsetOptInt: integer;
       AVDelaySelectNum:  integer;
       MicDelaySelectNum: integer;
+      AutoSkipSelectNum: integer;
+      SkipOffsetSelectNum: integer;
 
       procedure Leave;
       procedure ReloadCurrentScreen;
@@ -97,6 +101,8 @@ type
     iDebugSlide,
     iAVDelaySlide,
     iMicDelaySlide,
+    iAutoSkipFirstNoteSlide,
+    iSkipToFirstNoteOffsetSlide,
     iBackButton
   );
 
@@ -219,19 +225,41 @@ begin
   end;
 end;
 
+function GetSkipToFirstNoteOffsetOptText(var Param: integer; Offset: integer; Modify: boolean; OptText: PUTF8String): boolean;
+begin
+  if Param + Offset < 0 then
+    Result := false
+  else if Param + Offset > 120 then
+    Result := false
+  else
+  begin
+    if OptText <> nil then
+      OptText^ := Format('%d s', [Param + Offset]);
+    if Modify then
+      Param := Param + Offset;
+    Result := true;
+  end;
+end;
+
 procedure TScreenOptionsGame.UpdateCalculatedSelectSlides(Init: boolean);
 begin
   CalculateSelectSlide(Init, @GetAVDelayOptText, Ini.AVDelay, AVDelayOptInt, IAVDelay);
   CalculateSelectSlide(Init, @GetMicDelayOptText, Ini.MicDelay, MicDelayOptInt, IMicDelay);
+  CalculateSelectSlide(Init, @GetSkipToFirstNoteOffsetOptText, Ini.SkipToFirstNoteNegativeOffset, SkipToFirstNoteOffsetOptInt, ISkipToFirstNoteNegativeOffset);
   if Init then
   begin
     AVDelaySelectNum := AddSelectSlide('SING_OPTIONS_GAME_AVDELAY', AVDelayOptInt, IAVDelay);
     MicDelaySelectNum := AddSelectSlide('SING_OPTIONS_GAME_MICDELAY', MicDelayOptInt, IMicDelay);
+    AutoSkipToFirstNoteOptInt := Ord(Ini.AutoSkipToFirstNote);
+    AutoSkipSelectNum := AddSelectSlide('SING_OPTIONS_GAME_AUTO_SKIP_FIRST_NOTE', AutoSkipToFirstNoteOptInt, IAutoSkipFirstNoteTranslated);
+    SkipOffsetSelectNum := AddSelectSlide('SING_OPTIONS_GAME_SKIP_TO_FIRST_NOTE_OFFSET', SkipToFirstNoteOffsetOptInt, ISkipToFirstNoteNegativeOffset);
   end
   else
   begin
     UpdateSelectSlideOptions(AVDelaySelectNum, IAVDelay, AVDelayOptInt);
     UpdateSelectSlideOptions(MicDelaySelectNum, IMicDelay, MicDelayOptInt);
+    UpdateSelectSlideOptions(AutoSkipSelectNum, IAutoSkipFirstNoteTranslated, AutoSkipToFirstNoteOptInt);
+    UpdateSelectSlideOptions(SkipOffsetSelectNum, ISkipToFirstNoteNegativeOffset, SkipToFirstNoteOffsetOptInt);
   end;
 end;
 
@@ -261,6 +289,7 @@ end;
 
 procedure TScreenOptionsGame.Leave;
 begin
+  Ini.AutoSkipToFirstNote := AutoSkipToFirstNoteOptInt <> 0;
   Ini.Save;
   ReloadAllScreens;
   ReloadSongMenu;
