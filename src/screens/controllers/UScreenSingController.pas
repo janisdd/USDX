@@ -76,12 +76,14 @@ type
   private
     StartNote, EndNote:     TPos;
     FIntroAutoSkipDone:     boolean;
+    FIntroFirstNoteAudioTime: real;
 
     procedure LoadNextSong();
     procedure SongError();
     procedure ResetLinesAndLyrics();
     procedure ClearLyricEngines();
     function GetFirstNoteAudioTime: real;
+    function GetIntroFirstNoteAudioTime(StartTime: real): real;
   public
     CheckPlayerConfigOnNextSong: boolean;
     eSongLoaded: THookableEvent; //< event is called after lyrics of a song are loaded on OnShow
@@ -229,20 +231,44 @@ begin
     Result := GetTimeFromBeat(min(LyricsDuetP1.GetUpperLine().StartNote, LyricsDuetP2.GetUpperLine().StartNote));
 end;
 
+function TScreenSingController.GetIntroFirstNoteAudioTime(StartTime: real): real;
+var
+  TrackIndex, LineIndex, NoteIndex: integer;
+  NoteTime: real;
+  Found: boolean;
+begin
+  Result := StartTime;
+  Found := false;
+
+  for TrackIndex := Low(CurrentSong.Tracks) to High(CurrentSong.Tracks) do
+    for LineIndex := Low(CurrentSong.Tracks[TrackIndex].Lines) to High(CurrentSong.Tracks[TrackIndex].Lines) do
+      for NoteIndex := 0 to High(CurrentSong.Tracks[TrackIndex].Lines[LineIndex].Notes) do
+      begin
+        NoteTime := GetTimeFromBeat(CurrentSong.Tracks[TrackIndex].Lines[LineIndex].Notes[NoteIndex].StartBeat);
+        if (NoteTime >= StartTime) and ((not Found) or (NoteTime < Result)) then
+        begin
+          Result := NoteTime;
+          Found := true;
+        end;
+      end;
+end;
+
 procedure TScreenSingController.TryAutoSkipToFirstNoteIfNeeded;
 var
-  FirstT: real;
-  Offs:   integer;
+  TargetT: real;
 begin
   if FIntroAutoSkipDone or (not Ini.AutoSkipToFirstNote) or Paused or Settings.Finish then
     Exit;
-  Offs := Ini.SkipToFirstNoteNegativeOffset;
-  FirstT := GetFirstNoteAudioTime;
-  if FirstT - AudioPlayback.Position > Offs then
+
+  TargetT := FIntroFirstNoteAudioTime - Ini.SkipToFirstNoteNegativeOffset;
+  if TargetT <= AudioPlayback.Position then
   begin
-    AudioPlayback.SetPosition(FirstT - Offs);
     FIntroAutoSkipDone := true;
+    Exit;
   end;
+
+  AudioPlayback.SetPosition(TargetT);
+  FIntroAutoSkipDone := true;
 end;
 
 // method for input parsing. if false is returned, getnextwindow
@@ -699,6 +725,7 @@ begin
   ScreenSing := self;
   screenSingViewRef := TScreenSingView.Create();
   CheckPlayerConfigOnNextSong := true;
+  FIntroFirstNoteAudioTime := 0;
   // for now: default to letterbox but preserve aspect between songs
   BackgroundAspectCorrection := acoLetterBox;
 
@@ -740,6 +767,7 @@ begin
 
   ClearSettings;
   FIntroAutoSkipDone := false;
+  FIntroFirstNoteAudioTime := 0;
   Party.CallBeforeSing;
 
   // prepare players
@@ -1047,6 +1075,7 @@ var
 
 begin
   FIntroAutoSkipDone := false;
+  FIntroFirstNoteAudioTime := 0;
 
   // background texture (garbage disposal)
   if (Tex_Background.TexNum > 0) then
@@ -1143,7 +1172,10 @@ begin
       MedleyStart := 0;
 
     MedleyEnd := GetTimeFromBeat(CurrentSong.Medley.EndBeat) + CurrentSong.Medley.FadeOut_time;
-  end;
+    FIntroFirstNoteAudioTime := GetIntroFirstNoteAudioTime(MedleyStart);
+  end
+  else
+    FIntroFirstNoteAudioTime := GetIntroFirstNoteAudioTime(CurrentSong.Start);
 
   {*
    * == Background ==
