@@ -1872,7 +1872,11 @@ begin
     Result := Self.ReadTxTHeader(SongFile, ReadCustomTags);
 
     //Load Song for Medley Tags
-    CurrentSong := Self;
+    // we removed assinging Self to CurrentSong
+    // TODO check
+    //   open a song in editor, since UScreenEditSub also calls CurrentSong.Analyse(...)
+    //   medley / preview start generation
+    // CurrentSong := Self;
     Result := Result and LoadOpenedSong(SongFile, FileNamePath, DuetChange, RapToFreestyle, OutOfBoundsToFreestyle, AudioLength);
 
     if Result then
