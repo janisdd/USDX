@@ -101,9 +101,13 @@ type
   InteractionID = (
     iVoicePassthroughSlide,
     iBackgroundMusicSlide,
+    iBackgroundMusicVolumeSlide,
     iClickAssistSlide,
     iBeatClickSlide,
     iReplayGainSlide,
+    iAudioVolumeSlide,
+    iVocalsVolumeSlide,
+    iSfxVolumeSlide,
     iPreviewVolumeSlide,
     iPreviewFadingSlide,
     iBackButton

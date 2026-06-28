@@ -74,6 +74,7 @@ type
     iPartyPopupSlide,
     iSingScoresSlide,
     iTopScoresSlide,
+    iSkipTop5ScoresScreenSlide,
     iBackButton
   );
 
@@ -166,6 +167,7 @@ begin
   AddSelectSlide('SING_OPTIONS_ADVANCED_PARTYPOPUP', Ini.PartyPopup, IPartyPopupTranslated);
   AddSelectSlide('SING_OPTIONS_ADVANCED_SINGSCORES', Ini.SingScores, ISingScoresTranslated);
   AddSelectSlide('SING_OPTIONS_ADVANCED_TOPSCORES', Ini.TopScores, ITopScoresTranslated);
+  AddSelectSlide('Skip Top 5 Screen', Ini.SkipTop5ScoresScreen, ISkipTop5ScoresScreenTranslated);
 end;
 
 end.

@@ -89,6 +89,7 @@ procedure HandleSelectSongRequest(const Title, Artist: UTF8String; out ResponseJ
   out ResponseCode: Integer); forward;
 procedure HandleStartSelectedSongRequest(out ResponseJson: UTF8String; out ResponseCode: Integer); forward;
 procedure HandleCloseScoreScreenRequest(out ResponseJson: UTF8String; out ResponseCode: Integer); forward;
+procedure HandleCloseTop5ScreenRequest(out ResponseJson: UTF8String; out ResponseCode: Integer); forward;
 procedure HandleTogglePauseCurrentSongRequest(out ResponseJson: UTF8String; out ResponseCode: Integer); forward;
 procedure HandleCancelCurrentSongRequest(out ResponseJson: UTF8String; out ResponseCode: Integer); forward;
 procedure HandleStopSongPreviewRequest(const Title, Artist: UTF8String; out ResponseJson: UTF8String;
@@ -119,6 +120,7 @@ procedure CompanionRouteCurrentSong(ARequest: TRequest; AResponse: TResponse); f
 procedure CompanionRouteSelectSong(ARequest: TRequest; AResponse: TResponse); forward;
 procedure CompanionRouteStartSelectedSong(ARequest: TRequest; AResponse: TResponse); forward;
 procedure CompanionRouteCloseScoreScreen(ARequest: TRequest; AResponse: TResponse); forward;
+procedure CompanionRouteCloseTop5Screen(ARequest: TRequest; AResponse: TResponse); forward;
 procedure CompanionRouteTogglePauseCurrentSong(ARequest: TRequest; AResponse: TResponse); forward;
 procedure CompanionRouteCancelCurrentSong(ARequest: TRequest; AResponse: TResponse); forward;
 procedure CompanionRouteStopSongPreview(ARequest: TRequest; AResponse: TResponse); forward;
@@ -227,6 +229,13 @@ begin
   { Escape alone is insufficient from here: ParseInput only fades when
     FinishScreenDraw is true, which normally flips after Draw runs animations. }
   ScreenScore.CompanionDismiss;
+end;
+
+procedure CloseTop5ScreenInUi(Data: Pointer);
+begin
+  if (ScreenTop5 = nil) or (Display = nil) or (Display.CurrentScreen <> @ScreenTop5) then
+    Exit;
+  ScreenTop5.CompanionDismiss;
 end;
 
 procedure TogglePauseCurrentSongInUi(Data: Pointer);
@@ -668,6 +677,26 @@ begin
   ResponseCode := 200;
 end;
 
+procedure HandleCloseTop5ScreenRequest(out ResponseJson: UTF8String; out ResponseCode: Integer);
+begin
+  if (Display = nil) or (Display.CurrentScreen <> @ScreenTop5) then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'Not on top-5 screen', 409);
+    Exit;
+  end;
+
+  if not Assigned(ScreenTop5) then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'Top-5 screen not ready', 503);
+    Exit;
+  end;
+
+  ExecInMainThread(@CloseTop5ScreenInUi, nil);
+  Log.LogStatus('Companion', 'Close top-5 screen (CompanionDismiss)');
+  ResponseJson := '{"ok":true}';
+  ResponseCode := 200;
+end;
+
 procedure HandleTogglePauseCurrentSongRequest(out ResponseJson: UTF8String; out ResponseCode: Integer);
 begin
   if (Display = nil) or (Display.CurrentScreen <> @ScreenSing) then
@@ -1055,6 +1084,23 @@ begin
   AResponse.Content := ResponseJson;
 end;
 
+procedure CompanionRouteCloseTop5Screen(ARequest: TRequest; AResponse: TResponse);
+var
+  ResponseJson: UTF8String;
+  ResponseCode: Integer;
+begin
+  if CompareText(ARequest.Method, 'POST') <> 0 then
+  begin
+    SetErrorResponse(ResponseJson, ResponseCode, 'Method not allowed', 405);
+    AResponse.Code := ResponseCode;
+    AResponse.Content := ResponseJson;
+    Exit;
+  end;
+  HandleCloseTop5ScreenRequest(ResponseJson, ResponseCode);
+  AResponse.Code := ResponseCode;
+  AResponse.Content := ResponseJson;
+end;
+
 procedure CompanionRouteTogglePauseCurrentSong(ARequest: TRequest; AResponse: TResponse);
 var
   ResponseJson: UTF8String;
@@ -1158,6 +1204,7 @@ begin
   ARouter.RegisterRoute('/selectSong', @CompanionRouteSelectSong);
   ARouter.RegisterRoute('/startSelectedSong', @CompanionRouteStartSelectedSong);
   ARouter.RegisterRoute('/closeScoreScreen', @CompanionRouteCloseScoreScreen);
+  ARouter.RegisterRoute('/closeTop5Screen', @CompanionRouteCloseTop5Screen);
   ARouter.RegisterRoute('/togglePauseCurrentSong', @CompanionRouteTogglePauseCurrentSong);
   ARouter.RegisterRoute('/cancelCurrentSong', @CompanionRouteCancelCurrentSong);
   ARouter.RegisterRoute('/stopSongPreview', @CompanionRouteStopSongPreview);

@@ -229,6 +229,7 @@ type
       PartyPopup:     integer;
       SingScores:     integer;
       TopScores:      integer;
+      SkipTop5ScoresScreen: integer;
       SingTimebarMode:       integer;
       JukeboxTimebarMode:    integer;
 
@@ -458,6 +459,7 @@ const
   IAskbeforeDel:  array[0..1] of UTF8String = ('Off', 'On');
   ISingScores:    array[0..1] of UTF8String = ('Off', 'On');
   ITopScores:    array[0..1] of UTF8String = ('All', 'Player');
+  ISkipTop5ScoresScreen: array[0..1] of UTF8String = ('Off', 'On');
   IOnSongClick:   array[0..2] of UTF8String = ('Sing', 'Select Players', 'Open Menu');
   sStartSing = 0;
   sSelectPlayer = 1;
@@ -564,6 +566,7 @@ var
   IPartyPopupTranslated:       array[0..1] of UTF8String = ('Off', 'On');
   ISingScoresTranslated:       array[0..1] of UTF8String = ('Off', 'On');
   ITopScoresTranslated:        array[0..1] of UTF8String = ('All', 'Player');
+  ISkipTop5ScoresScreenTranslated: array[0..1] of UTF8String = ('Off', 'On');
 
   IJoypadTranslated:           array[0..1] of UTF8String = ('Off', 'On');
   IMouseTranslated:            array[0..2] of UTF8String = ('Off', 'On [System Cursor]', 'On [Game Cursor]');
@@ -851,6 +854,9 @@ begin
 
   ITopScoresTranslated[0]          := ULanguage.Language.Translate('OPTION_VALUE_ALL');
   ITopScoresTranslated[1]          := ULanguage.Language.Translate('OPTION_VALUE_PLAYER');
+
+  ISkipTop5ScoresScreenTranslated[0] := ULanguage.Language.Translate('OPTION_VALUE_OFF');
+  ISkipTop5ScoresScreenTranslated[1] := ULanguage.Language.Translate('OPTION_VALUE_ON');
 
   IJoypadTranslated[0]                := ULanguage.Language.Translate('OPTION_VALUE_OFF');
   IJoypadTranslated[1]                := ULanguage.Language.Translate('OPTION_VALUE_ON');
@@ -1529,7 +1535,7 @@ begin
   MicDelay := IniFile.ReadInteger('Game', 'MicDelay', 140);
 
   AutoSkipToFirstNote := IniFile.ReadBool('Game', 'AutoSkipToFirstNote', false);
-  SkipToFirstNoteNegativeOffset := IniFile.ReadInteger('Game', 'SkipToFirstNoteNegativeOffset', 5);
+  SkipToFirstNoteNegativeOffset := IniFile.ReadInteger('Game', 'SkipToFirstNoteNegativeOffset', 10);
   if SkipToFirstNoteNegativeOffset < 0 then
     SkipToFirstNoteNegativeOffset := 0;
 
@@ -1608,7 +1614,7 @@ begin
   AudioVolume  := ReadVolumePercent('Sound', 'AudioVolume', 100);
   VocalsVolume := ReadVolumePercent('Sound', 'VocalsVolume', 100);
   SfxVolume    := ReadVolumePercent('Sound', 'SfxVolume', 100);
-  PreviewVolume := ReadVolumePercent('Sound', 'PreviewVolume', 30);
+  PreviewVolume := ReadVolumePercent('Sound', 'PreviewVolume', 100);
   BackgroundMusicVolume := ReadVolumePercent('Sound', 'BackgroundMusicVolume', 40);
 
   // ReplayGain
@@ -1679,6 +1685,9 @@ begin
 
   // TopScores
   TopScores := ReadArrayIndex(ITopScores, IniFile, 'Advanced', 'TopScores', IGNORE_INDEX, 'Player');
+
+  // SkipTop5ScoresScreen
+  SkipTop5ScoresScreen := ReadArrayIndex(ISkipTop5ScoresScreen, IniFile, 'Advanced', 'SkipTop5ScoresScreen', IGNORE_INDEX, 'On');
 
   // SyncTo
   SyncTo := ReadArrayIndex(ISyncTo, IniFile, 'Advanced', 'SyncTo', Ord(stMusic));
@@ -2009,6 +2018,9 @@ begin
 
     //TopScores
     IniFile.WriteString('Advanced', 'TopScores', ITopScores[TopScores]);
+
+    //SkipTop5ScoresScreen
+    IniFile.WriteString('Advanced', 'SkipTop5ScoresScreen', ISkipTop5ScoresScreen[SkipTop5ScoresScreen]);
 
     //SyncTo
     IniFile.WriteString('Advanced', 'SyncTo', ISyncTo[SyncTo]);

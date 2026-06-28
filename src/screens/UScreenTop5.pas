@@ -63,6 +63,7 @@ type
       procedure OnShow; override;
       procedure DrawScores(difficulty: integer);
       function Draw: boolean; override;
+      procedure CompanionDismiss;
   end;
 
 const
@@ -150,6 +151,11 @@ begin
   if (MouseButton = SDL_BUTTON_LEFT) and BtnDown then
     //left-click anywhere sends return
     ParseInput(SDLK_RETURN, 0, true);
+end;
+
+procedure TScreenTop5.CompanionDismiss;
+begin
+  ParseInput(SDLK_ESCAPE, 0, true);
 end;
 
 constructor TScreenTop5.Create;
