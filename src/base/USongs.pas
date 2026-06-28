@@ -108,6 +108,7 @@ type
   private
     fParseSongDirectory: boolean;
     fProcessing:         boolean;
+    fAllowSDLUiDuringDiscovery: Boolean;
     BrowseTXTFilesSafeLock: System.TRTLCriticalSection;
     MergeSongListSafePending: Boolean;
     procedure ClearSongListSafe;
@@ -302,7 +303,12 @@ begin
   LoadingStats.LoadTimeMs := 0;
 
   // until it is fixed, simply load the song-list
-  int_LoadSongList();
+  fAllowSDLUiDuringDiscovery := true;
+  try
+    int_LoadSongList();
+  finally
+    fAllowSDLUiDuringDiscovery := false;
+  end;
 end;
 
 destructor TSongs.Destroy();
@@ -323,9 +329,11 @@ end;
 procedure TSongs.Execute();
 begin
 {$IFDEF USE_PSEUDO_THREAD}
+  fAllowSDLUiDuringDiscovery := false;
   int_LoadSongList();
 {$ELSE}
   fParseSongDirectory := true;
+  fAllowSDLUiDuringDiscovery := false;
 
   while not terminated do
   begin
@@ -416,7 +424,7 @@ begin
 
     // Process SDL events periodically to keep app responsive
     Inc(FileDiscoveryCounter);
-    if (FileDiscoveryCounter mod 100 = 0) then
+    if fAllowSDLUiDuringDiscovery and (FileDiscoveryCounter mod 100 = 0) then
     begin
       PumpSDLEvents;
       // Update window title with discovery progress
@@ -462,7 +470,8 @@ begin
   for I := 0 to High(Files) do
   begin
     // Process SDL events to keep app responsive
-    PumpSDLEvents;
+    if fAllowSDLUiDuringDiscovery then
+      PumpSDLEvents;
 
     // Update progress info
     LoadingStats.CurrentFile := LoadingStats.CurrentFile + 1;
@@ -472,7 +481,7 @@ begin
     if (LoadingStats.CurrentFile mod 50 = 0) or (LoadingStats.CurrentFile = LoadingStats.FilesFound) then
     begin
       Log.LogStatus(Format('Loading songs: %d / %d', [LoadingStats.CurrentFile, LoadingStats.FilesFound]), 'SongLoader');
-      if Assigned(Screen) then
+      if fAllowSDLUiDuringDiscovery and Assigned(Screen) then
         SDL_SetWindowTitle(Screen, PChar(Format('UltraStar Deluxe - Loading songs: %d / %d',
           [LoadingStats.CurrentFile, LoadingStats.FilesFound])));
     end;
